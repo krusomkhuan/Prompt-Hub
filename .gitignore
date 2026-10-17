@@ -1,0 +1,4 @@
+/config/local.php
+/storage/*
+!/storage/.gitkeep
+.env
