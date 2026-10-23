@@ -1,1 +1,9 @@
-Require all denied
+# Prompt Hub — ให้เว็บเข้าถึงได้เฉพาะ public/ (โฟลเดอร์อื่นมี .htaccess ของตัวเองที่ปฏิเสธทั้งหมด)
+Options -Indexes
+DirectoryIndex index.php
+<FilesMatch "\.(md|sql|log|py|sh|json|lock|ini|example\.php)$">
+    Require all denied
+</FilesMatch>
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>

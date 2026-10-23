@@ -1,4 +1,20 @@
-/config/local.php
-/storage/*
-!/storage/.gitkeep
-.env
+/config/config.php
+/storage/logs/*
+!/storage/logs/.gitkeep
+/storage/uploads/prompts/*
+!/storage/uploads/prompts/.gitkeep
+/storage/uploads/avatars/*
+!/storage/uploads/avatars/.gitkeep
+/storage/uploads/shop/*
+!/storage/uploads/shop/.gitkeep
+/storage/backups/
+/storage/initial-accounts.txt
+/skills/*.zip
+/storage/google-drive.json
+/deploy/*.zip
+
+# ไฟล์ export ฐานข้อมูลที่มีข้อมูลสมาชิกจริง (อีเมล/hash รหัสผ่าน) — ห้าม commit (PDPA)
+/database/prompt_hub.sql
+/database/*prompthub*.sql
+# ไฟล์ zip ของสกิลสร้างจาก build_skill.py และอาจรวมไฟล์ dump ฐานข้อมูล — ไม่ commit
+/skills/prompt-hub/assets/*.zip

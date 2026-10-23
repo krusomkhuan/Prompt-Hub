@@ -1,0 +1,40 @@
+﻿อัปเดต Prompt Hub 1.9.0 → 1.11.0 บน krusomkhuan.com
+=====================================================
+
+1) อัปโหลดไฟล์ (ทับไฟล์เดิม) — ในโฮสต์ โฟลเดอร์ระบบคือ prompthub/
+   - prompthub/public/index.php
+   - prompthub/public/assets/js/app.js
+   - prompthub/app/version.php
+   - prompthub/app/routes.php
+   - prompthub/app/Core/App.php
+   - prompthub/app/Controllers/AdminController.php
+   - prompthub/app/Controllers/MemberController.php
+   - prompthub/app/Services/AuthService.php
+   - prompthub/app/Services/GoogleAuthService.php
+   - prompthub/app/Services/GoogleDriveService.php
+   - prompthub/app/Repositories/UserRepository.php
+   - prompthub/app/Repositories/SettingRepository.php
+   - prompthub/app/Repositories/ActivityLogRepository.php
+   - prompthub/views/member/profile.php
+   - prompthub/views/admin/settings.php
+   - prompthub/views/admin/drive.php
+
+   * ไม่มี config/config.php และ storage/ ในชุดนี้ — ห้ามลบหรือทับของเดิมบนโฮสต์
+
+2) เข้าสู่ระบบเว็บด้วยบัญชีผู้ดูแล > หลังบ้าน > ตั้งค่าเว็บไซต์ > การ์ด "เข้าสู่ระบบ / สมัครสมาชิกด้วย Google"
+   - เปิดสวิตช์ ใส่ Client ID และ Client secret > บันทึกการตั้งค่า Google
+   - กด "ทดสอบกับ Google" — ถ้าขึ้น redirect_uri_mismatch ให้ทำข้อ 3 แล้วทดสอบใหม่
+   (ไม่ต้องแก้ config/config.php แล้ว — ถ้าเคยใส่ไว้ใน config ก็ใช้ได้ ค่าในหลังบ้านมีผลก่อน)
+
+3) Google Cloud Console (OAuth Client เดียวกับ client_id ข้างบน)
+   - Credentials > OAuth client > Authorized redirect URIs เพิ่มให้ตรงทุกตัวอักษร:
+       https://krusomkhuan.com/prompthub/public/index.php?r=google.callback
+       https://krusomkhuan.com/prompthub/public/index.php?r=admin.drive.callback   (ถ้าใช้ Client นี้กับ Drive)
+   - OAuth consent screen > Audience: External > Publish app (In production)
+     (Internal = ใช้ได้เฉพาะบัญชี @pticec.ac.th, Testing = ใช้ได้เฉพาะ Test users)
+   - บันทึกแล้วรอสักครู่ (Google อาจใช้เวลา 5 นาที – ไม่กี่ชั่วโมงก่อนค่าใหม่มีผล)
+
+4) ตรวจ
+   - ส่วนท้ายเว็บต้องขึ้น "เวอร์ชัน 1.11.0"
+   - หน้าเข้าสู่ระบบ/สมัครสมาชิกต้องมีปุ่ม Google
+   - แจ้งผู้ช่วยให้รันตัวตรวจเว็บจริง (deploy/check_live.py) อีกครั้ง
