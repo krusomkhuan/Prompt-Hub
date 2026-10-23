@@ -10,7 +10,10 @@ use PromptHub\Core\Session;
 
 /**
  * เก็บภาพตัวอย่างผลลัพธ์ไว้ใน Google Drive ของผู้ดูแล (OAuth 2.0 + PKCE, refresh token)
- *  - ผู้ดูแลกด “เชื่อมต่อ Google Drive” ในหลังบ้านครั้งเดียว ระบบสร้างโฟลเดอร์ย่อยสำหรับภาพในโฟลเดอร์ที่กำหนด
+ *  - ผู้ดูแลกด “เชื่อมต่อ Google Drive” ในหลังบ้านครั้งเดียว ในโฟลเดอร์หลักที่กำหนด ระบบจัดโฟลเดอร์ให้ตรงกับเว็บ:
+ *      โฟลเดอร์หลัก/storage/uploads/prompts  ← ภาพตัวอย่าง (ชื่อไฟล์เดียวกับบนเซิร์ฟเวอร์)
+ *      โฟลเดอร์หลัก/storage/backups          ← ไฟล์สำรองข้อมูล (เมื่อไม่ได้ตั้งโฟลเดอร์สำรองแยก)
+ *    โฟลเดอร์ที่มีชื่อตรงกันอยู่แล้วใช้ของเดิม · ภาพที่เคยอยู่ในโฟลเดอร์รุ่นเก่า (LEGACY_SUBFOLDER) ย้ายมาด้วย relocateLegacy()
  *  - ภาพยังเก็บสำเนาในเครื่อง (storage/uploads/prompts) เป็นข้อมูลสำรอง และใช้แสดงแทนเมื่อ Drive ใช้ไม่ได้
  *  - ไฟล์บน Drive ตั้งสิทธิ์ “ทุกคนที่มีลิงก์ดูได้” แล้วหน้าเว็บลิงก์ภาพตรงไปที่ Drive (lh3.googleusercontent.com)
  *  - ลบภาพในระบบ → ย้ายไฟล์บน Drive ไปถังขยะ (กู้คืนได้ใน Drive 30 วัน)
@@ -19,7 +22,11 @@ use PromptHub\Core\Session;
 final class GoogleDriveService
 {
     public const SCOPE = 'https://www.googleapis.com/auth/drive';
-    public const SUBFOLDER_NAME = 'Prompt Hub - ภาพตัวอย่างผลลัพธ์';
+    /** โฟลเดอร์ภาพบน Drive ตรงกับ storage/uploads/prompts ของเว็บ */
+    public const IMAGE_PATH = ['storage', 'uploads', 'prompts'];
+    public const BACKUP_PATH = ['storage', 'backups'];
+    /** โฟลเดอร์ภาพรุ่นก่อน 1.12 (ภาพในนี้ถูกย้ายไป IMAGE_PATH) */
+    public const LEGACY_SUBFOLDER = 'Prompt Hub - ภาพตัวอย่างผลลัพธ์';
     private const SESSION_KEY = 'drive_oauth';
     private static ?array $stateCache = null;
 
@@ -133,6 +140,17 @@ final class GoogleDriveService
     }
 
     /** รับ callback: แลก token ตรวจสิทธิ์ในโฟลเดอร์ แล้วสร้าง/ใช้โฟลเดอร์ย่อยสำหรับภาพ */
+    /**
+     * callback นี้เป็นของการเชื่อมต่อ Drive หรือไม่ (Drive ใช้ redirect URI เดียวกับการเข้าสู่ระบบด้วย Google)
+     * ตรวจจาก state ที่บันทึกใน session ตอนกดปุ่มเชื่อมต่อ — ไม่ตรง = เป็นการเข้าสู่ระบบตามปกติ
+     */
+    public static function ownsState(Session $session, $state): bool
+    {
+        $saved = $session->get(self::SESSION_KEY);
+        return is_string($state) && $state !== '' && is_array($saved) && is_string($saved['state'] ?? null)
+            && hash_equals($saved['state'], $state);
+    }
+
     public function handleCallback(Session $session, array $query, string $parentFolderId): array
     {
         $saved = $session->get(self::SESSION_KEY);
@@ -171,7 +189,13 @@ final class GoogleDriveService
         if (empty($parent['capabilities']['canAddChildren'])) {
             throw new HttpException(400, 'บัญชีนี้ไม่มีสิทธิ์เพิ่มไฟล์ในโฟลเดอร์ “' . ($parent['name'] ?? '') . '” (ต้องเป็นผู้แก้ไขหรือเจ้าของ)');
         }
-        $folderId = $this->findOrCreateSubfolder($access, $parentFolderId);
+        $folderId = $this->ensurePath($access, $parentFolderId, self::IMAGE_PATH);
+        $previous = self::state();
+        // เคยใช้โฟลเดอร์รุ่นเก่า (หรือโฟลเดอร์อื่น) → จำไว้เพื่อย้ายภาพเดิมมาโฟลเดอร์ใหม่
+        $legacy = $this->findFolder($access, $parentFolderId, self::LEGACY_SUBFOLDER);
+        if (!empty($previous['folder_id']) && $previous['folder_id'] !== $folderId) {
+            $legacy = (string) $previous['folder_id'];
+        }
         $state = [
             'refresh_token' => (string) $token['refresh_token'],
             'access_token' => $access,
@@ -180,25 +204,128 @@ final class GoogleDriveService
             'parent_folder_id' => $parentFolderId,
             'parent_folder_name' => (string) ($parent['name'] ?? ''),
             'folder_id' => $folderId,
+            'layout' => 'mirror',
             'connected_at' => gmdate('Y-m-d H:i:s'),
         ];
+        if ($legacy !== null && $legacy !== $folderId) {
+            $state['legacy_folder_id'] = $legacy;
+            $state['legacy_cursor'] = 0;
+        }
         self::saveState($state);
         return $state;
     }
 
-    private function findOrCreateSubfolder(string $access, string $parentId): string
+    /** หาโฟลเดอร์ชื่อนี้ในโฟลเดอร์แม่ (ไม่พบ = null) */
+    private function findFolder(string $access, string $parentId, string $name): ?string
     {
         $q = sprintf("name = '%s' and '%s' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
-            str_replace("'", "\\'", self::SUBFOLDER_NAME), $parentId);
+            str_replace(['\\', "'"], ['\\\\', "\\'"], $name), $parentId);
         $list = $this->api('GET', $this->d('api_base', 'https://www.googleapis.com/drive/v3') . '/files?' . http_build_query([
             'q' => $q, 'fields' => 'files(id,name)', 'supportsAllDrives' => 'true', 'includeItemsFromAllDrives' => 'true',
         ]), $access);
-        if (!empty($list['files'][0]['id'])) {
-            return (string) $list['files'][0]['id'];
+        return !empty($list['files'][0]['id']) ? (string) $list['files'][0]['id'] : null;
+    }
+
+    /** หาหรือสร้างโฟลเดอร์ซ้อนตามลำดับชื่อ เช่น ['storage','uploads','prompts'] คืนรหัสโฟลเดอร์ชั้นสุดท้าย (มีอยู่แล้วใช้ของเดิม) */
+    private function ensurePath(string $access, string $parentId, array $names): string
+    {
+        foreach ($names as $name) {
+            $id = $this->findFolder($access, $parentId, $name);
+            if ($id === null) {
+                $folder = $this->api('POST', $this->d('api_base', 'https://www.googleapis.com/drive/v3') . '/files?supportsAllDrives=true&fields=id', $access,
+                    json_encode(['name' => $name, 'mimeType' => 'application/vnd.google-apps.folder', 'parents' => [$parentId]], JSON_UNESCAPED_UNICODE));
+                $id = (string) $folder['id'];
+            }
+            $parentId = $id;
         }
-        $folder = $this->api('POST', $this->d('api_base', 'https://www.googleapis.com/drive/v3') . '/files?supportsAllDrives=true&fields=id', $access,
-            json_encode(['name' => self::SUBFOLDER_NAME, 'mimeType' => 'application/vnd.google-apps.folder', 'parents' => [$parentId]], JSON_UNESCAPED_UNICODE));
-        return (string) $folder['id'];
+        return $parentId;
+    }
+
+    /**
+     * การเชื่อมต่อที่สร้างก่อนจัดโฟลเดอร์ให้ตรงกับเว็บ: สร้าง storage/uploads/prompts แล้วจำโฟลเดอร์เดิมไว้ย้ายภาพ
+     * (เรียกก่อนอัปโหลดทุกครั้ง — การเชื่อมต่อแบบใหม่แล้วไม่ทำอะไร)
+     */
+    public function ensureLayout(): void
+    {
+        $s = self::state();
+        if (!$s || ($s['layout'] ?? '') === 'mirror' || !self::active()) {
+            return;
+        }
+        $folderId = $this->ensurePath($this->accessToken(), (string) $s['parent_folder_id'], self::IMAGE_PATH);
+        $s = self::state();
+        if ($s['folder_id'] !== $folderId) {
+            $s['legacy_folder_id'] = (string) $s['folder_id'];
+            $s['legacy_cursor'] = 0;
+        }
+        $s['folder_id'] = $folderId;
+        $s['layout'] = 'mirror';
+        self::saveState($s);
+    }
+
+    /** จำนวนภาพบน Drive ที่ยังต้องย้ายจากโฟลเดอร์เดิม */
+    public function legacyRemaining(): int
+    {
+        $s = self::state();
+        // เชื่อมต่อด้วยรุ่นก่อนจัดโฟลเดอร์ (ยังไม่มี layout) = ภาพทุกภาพบน Drive ยังอยู่ในโฟลเดอร์เดิม
+        $oldLayout = $s && !empty($s['folder_id']) && ($s['layout'] ?? '') !== 'mirror';
+        if (!$oldLayout && empty($s['legacy_folder_id'])) {
+            return 0;
+        }
+        return (int) $this->db->value('SELECT COUNT(*) FROM prompt_images WHERE drive_file_id IS NOT NULL AND id > ?', [$oldLayout ? 0 : (int) ($s['legacy_cursor'] ?? 0)]);
+    }
+
+    /**
+     * ย้ายภาพที่อัปโหลดไว้แล้วจากโฟลเดอร์เดิมมา storage/uploads/prompts และเปลี่ยนชื่อเป็นชื่อเดียวกับบนเซิร์ฟเวอร์
+     * (ย้ายไฟล์เดิม ไม่อัปโหลดซ้ำ — รหัสไฟล์และลิงก์ภาพบนเว็บไม่เปลี่ยน) คืน ['moved' => n, 'failed' => n, 'remaining' => n]
+     */
+    public function relocateLegacy(int $limit = 50): array
+    {
+        $result = ['moved' => 0, 'failed' => 0, 'remaining' => 0];
+        if (!self::active()) {
+            return $result;
+        }
+        $this->ensureLayout();
+        $s = self::state();
+        if (empty($s['legacy_folder_id'])) {
+            return $result;
+        }
+        $access = $this->accessToken();
+        $cursor = (int) ($s['legacy_cursor'] ?? 0);
+        $rows = $this->db->all('SELECT id, file_name, drive_file_id FROM prompt_images WHERE drive_file_id IS NOT NULL AND id > ? ORDER BY id LIMIT ?', [$cursor, $limit]);
+        foreach ($rows as $row) {
+            try {
+                $r = $this->api('PATCH', $this->d('api_base', 'https://www.googleapis.com/drive/v3') . '/files/' . rawurlencode((string) $row['drive_file_id']) . '?'
+                    . http_build_query(['addParents' => $s['folder_id'], 'removeParents' => $s['legacy_folder_id'], 'supportsAllDrives' => 'true', 'fields' => 'id']),
+                    $access, json_encode(['name' => $row['file_name']]), [404]);
+                if (($r['__status'] ?? 200) !== 404) {
+                    $result['moved']++;
+                }
+                $cursor = (int) $row['id'];
+            } catch (\Throwable $e) {
+                Logger::error($e, 'drive-relocate');
+                $result['failed']++;
+                break; // หยุดไว้ที่ไฟล์นี้ รอบหน้าทำต่อจากตรงนี้
+            }
+        }
+        $s = self::state();
+        $s['legacy_cursor'] = $cursor;
+        self::saveState($s);
+        $result['remaining'] = $this->legacyRemaining();
+        if ($result['remaining'] === 0 && $result['failed'] === 0) {
+            unset($s['legacy_folder_id'], $s['legacy_cursor']); // ย้ายครบแล้ว (โฟลเดอร์เดิมว่าง ลบเองได้ใน Drive)
+            self::saveState($s);
+        }
+        return $result;
+    }
+
+    /** โฟลเดอร์ storage/backups ในโฟลเดอร์หลัก (สร้างเมื่อยังไม่มี) */
+    public function backupFolderId(): string
+    {
+        $s = self::state();
+        if (!self::active() || empty($s['parent_folder_id'])) {
+            throw new \RuntimeException('ยังไม่ได้เชื่อมต่อ Google Drive หรือต้องเชื่อมต่อใหม่');
+        }
+        return $this->ensurePath($this->accessToken(), (string) $s['parent_folder_id'], self::BACKUP_PATH);
     }
 
     public function disconnect(): void
@@ -225,6 +352,7 @@ final class GoogleDriveService
         if (!self::active()) {
             return $result;
         }
+        $this->ensureLayout();
         $where = 'drive_file_id IS NULL' . ($promptId !== null ? ' AND prompt_id = ?' : '');
         $args = $promptId !== null ? [$promptId] : [];
         $rows = $this->db->all("SELECT id, prompt_id, file_name, mime FROM prompt_images WHERE $where ORDER BY id LIMIT ?", array_merge($args, [$limit]));
@@ -253,7 +381,7 @@ final class GoogleDriveService
         $access = $this->accessToken();
         $boundary = 'ph' . bin2hex(random_bytes(12));
         $meta = json_encode([
-            'name' => sprintf('prompt-%d-image-%d.%s', $row['prompt_id'], $row['id'], pathinfo($row['file_name'], PATHINFO_EXTENSION)),
+            'name' => $row['file_name'], // ชื่อเดียวกับ storage/uploads/prompts บนเซิร์ฟเวอร์
             'parents' => [self::state()['folder_id']],
             'description' => 'Prompt Hub · ภาพตัวอย่างผลลัพธ์ของ Prompt #' . (int) $row['prompt_id'],
         ], JSON_UNESCAPED_UNICODE);
@@ -273,6 +401,111 @@ final class GoogleDriveService
             // ภาพถูกลบหรืออัปโหลดซ้ำระหว่างทาง: ทิ้งไฟล์ที่เพิ่งสร้าง
             $this->trash([$fileId]);
         }
+    }
+
+    // ---------- สำรองข้อมูล ----------
+
+    public const BACKUP_CHUNK = 8 * 1024 * 1024; // ต้องเป็นผลคูณของ 256 KB ตามข้อกำหนดของ Drive
+
+    /**
+     * อัปโหลดไฟล์สำรอง (zip) ขึ้นโฟลเดอร์ที่กำหนดแบบ resumable ทีละ 8 MB — ไม่ตั้งสิทธิ์แชร์ (ไฟล์มีข้อมูลสมาชิก)
+     * คืน ['id' => fileId, 'name' => …, 'size' => bytes, 'folder_name' => …]
+     */
+    public function uploadBackup(string $path, string $folderId): array
+    {
+        if (!self::active()) {
+            throw new \RuntimeException('ยังไม่ได้เชื่อมต่อ Google Drive หรือต้องเชื่อมต่อใหม่');
+        }
+        $access = $this->accessToken();
+        $api = $this->d('api_base', 'https://www.googleapis.com/drive/v3');
+        $folder = $this->api('GET', $api . '/files/' . rawurlencode($folderId) . '?'
+            . http_build_query(['fields' => 'id,name,mimeType,capabilities(canAddChildren)', 'supportsAllDrives' => 'true']), $access, null, [404]);
+        if (($folder['__status'] ?? 200) === 404 || ($folder['mimeType'] ?? '') !== 'application/vnd.google-apps.folder') {
+            throw new HttpException(400, 'บัญชี Google ที่เชื่อมต่อ (' . (self::state()['email'] ?? '') . ') เข้าถึงโฟลเดอร์สำรองข้อมูลไม่ได้ — แชร์โฟลเดอร์ให้บัญชีนี้เป็นผู้แก้ไข');
+        }
+        if (empty($folder['capabilities']['canAddChildren'])) {
+            throw new HttpException(400, 'บัญชีที่เชื่อมต่อไม่มีสิทธิ์เพิ่มไฟล์ในโฟลเดอร์ “' . ($folder['name'] ?? '') . '” (ต้องเป็นผู้แก้ไขหรือเจ้าของ)');
+        }
+        $size = (int) filesize($path);
+        $name = basename($path);
+        // 1) เปิด session อัปโหลด
+        [$status, , $headers] = $this->rawRequestWithHeaders('POST', $this->d('upload_base', 'https://www.googleapis.com/upload/drive/v3')
+            . '/files?uploadType=resumable&supportsAllDrives=true&fields=id,name,size', [
+                'Authorization: Bearer ' . $access,
+                'Content-Type: application/json; charset=UTF-8',
+                'X-Upload-Content-Type: application/zip',
+                'X-Upload-Content-Length: ' . $size,
+            ], json_encode(['name' => $name, 'parents' => [$folderId], 'mimeType' => 'application/zip',
+                'description' => 'Prompt Hub · ไฟล์สำรองข้อมูล (ฐานข้อมูล + ไฟล์อัปโหลด) — มีข้อมูลสมาชิก ห้ามแชร์'], JSON_UNESCAPED_UNICODE));
+        $session = $headers['location'] ?? '';
+        if ($status !== 200 || !preg_match('#^https?://#', $session)) {
+            throw new \RuntimeException('Drive resumable session failed (HTTP ' . $status . ')');
+        }
+        // 2) ส่งไฟล์ทีละช่วง (308 = รับแล้ว ส่งต่อ / 200,201 = เสร็จ)
+        $fh = fopen($path, 'rb');
+        if ($fh === false) {
+            throw new \RuntimeException('Cannot read backup file');
+        }
+        try {
+            $offset = 0;
+            $result = null;
+            do {
+                $chunk = $size > 0 ? (string) fread($fh, self::BACKUP_CHUNK) : '';
+                $end = $offset + strlen($chunk) - 1;
+                $range = $size > 0 ? "bytes $offset-$end/$size" : 'bytes */0';
+                [$status, $raw, $h] = $this->rawRequestWithHeaders('PUT', $session, ['Content-Range: ' . $range, 'Content-Type: application/zip'], $chunk);
+                if ($status === 308) {
+                    // Drive บอกว่าได้รับถึงไบต์ไหน (Range: bytes=0-N) — ส่งต่อจากตรงนั้น
+                    $offset = preg_match('/bytes=0-(\d+)/', $h['range'] ?? '', $m) ? (int) $m[1] + 1 : $end + 1;
+                    fseek($fh, $offset);
+                    continue;
+                }
+                if ($status === 200 || $status === 201) {
+                    $result = json_decode($raw, true);
+                    break;
+                }
+                throw new \RuntimeException('Drive backup upload HTTP ' . $status);
+            } while ($offset < $size);
+        } finally {
+            fclose($fh);
+        }
+        if (!is_array($result) || !preg_match('/^[A-Za-z0-9_-]{10,128}$/D', (string) ($result['id'] ?? ''))) {
+            throw new \RuntimeException('Drive backup upload returned no file id');
+        }
+        return ['id' => (string) $result['id'], 'name' => $name, 'size' => $size, 'folder_name' => (string) ($folder['name'] ?? '')];
+    }
+
+    /** เหมือน rawRequest แต่คืน header ด้วย (ชื่อ header ตัวพิมพ์เล็ก) */
+    private function rawRequestWithHeaders(string $method, string $url, array $headers, ?string $body): array
+    {
+        $out = [];
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_CUSTOMREQUEST => $method,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 300,
+            CURLOPT_CONNECTTIMEOUT => 10,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_POSTFIELDS => $body ?? '',
+            CURLOPT_HEADERFUNCTION => static function ($ch, string $line) use (&$out): int {
+                if (str_contains($line, ':')) {
+                    [$k, $v] = explode(':', $line, 2);
+                    $out[strtolower(trim($k))] = trim($v);
+                }
+                return strlen($line);
+            },
+        ]);
+        $res = curl_exec($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $err = curl_error($ch);
+        curl_close($ch);
+        if ($res === false) {
+            throw new \RuntimeException('Google request failed: ' . $err);
+        }
+        return [$status, (string) $res, $out];
     }
 
     /** ย้ายไฟล์บน Drive ไปถังขยะ (ผิดพลาดบันทึก log ไม่ขัดการทำงานของเว็บ) */

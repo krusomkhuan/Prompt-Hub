@@ -35,8 +35,8 @@ return [
         'timeout' => 15,
     ],
     // สมัคร/เข้าสู่ระบบด้วยบัญชี Google (OAuth 2.0) สร้าง Client ID ที่ https://console.cloud.google.com/apis/credentials
-    // ชนิด Web application และใส่ Authorized redirect URI = app_url + base_url + /index.php?r=google.callback
-    // เช่น http://localhost/prompt_hub/public/index.php?r=google.callback
+    // ชนิด Web application และใส่ Authorized redirect URI = app_url + base_url + /google_callback.php
+    // เช่น http://localhost/prompt_hub/public/google_callback.php
     'google' => [
         'enabled' => false,
         'client_id' => '',

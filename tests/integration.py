@@ -396,7 +396,7 @@ try:
           'หน้า Prompt สาธารณะมีลิงก์แชร์แบบเต็มตาม URL เว็บไซต์')
     check('rel="canonical"' not in admin.get('admin')[1] and 'rel="canonical"' not in member.get('dashboard')[1], 'หน้าหลังบ้าน/สมาชิกไม่มีลิงก์แชร์')
     settings_html = admin.get('admin.settings')[1]
-    check(('%s/index.php?r=google.callback' % site) in settings_html, 'หน้าตั้งค่าแสดง Google redirect URI ตาม URL ใหม่')
+    check(('%s/google_callback.php' % site) in settings_html, 'หน้าตั้งค่าแสดง Google redirect URI ตาม URL ใหม่')
     admin.post('admin.settings.save', dict(changed, site_url='http://hub-%s.example.ac.th' % SUFFIX))
     check('siteUrlHttpWarning' in admin.get('admin.settings')[1], 'เตือนเมื่อ URL จริงไม่ใช้ https')
     admin.post('admin.settings.save', dict(changed, site_url=''))

@@ -14,6 +14,7 @@ use PromptHub\Repositories\SettingRepository;
 use PromptHub\Repositories\TagRepository;
 use PromptHub\Repositories\UserRepository;
 use PromptHub\Services\AdminService;
+use PromptHub\Services\BackupService;
 use PromptHub\Services\GoogleAuthService;
 use PromptHub\Services\GoogleDriveService;
 use PromptHub\Services\PromptService;
@@ -340,6 +341,14 @@ final class AdminController extends Controller
         $secret = trim((string) ($_POST['google_client_secret'] ?? ''));
         $clear = $v->bool('google_clear');
         $settings = $this->app->settings;
+        // redirect URI ที่ตั้งเอง: เว้นว่าง = ใช้ค่าเริ่มต้น (URL เว็บไซต์ + /google_callback.php)
+        $redirectUri = trim($this->postString('google_redirect_uri'));
+        if ($redirectUri === google_default_redirect_uri()) {
+            $redirectUri = '';
+        }
+        if ($redirectUri !== '' && !google_redirect_uri_valid($redirectUri)) {
+            $v->addError('google_redirect_uri', 'Redirect URI ต้องเป็น http(s)://…/google_callback.php หรือ http(s)://…/index.php?r=google.callback ของเว็บนี้');
+        }
         if ($clear) {
             $id = '';
             $secret = '';
@@ -372,8 +381,10 @@ final class AdminController extends Controller
             'google_login_enabled' => $enable ? '1' : '0',
             'google_client_id' => $id,
             'google_client_secret' => $secret,
+            'google_redirect_uri' => $redirectUri,
         ]);
-        $this->logs()->log($admin, 'google.settings', 'settings', null, ($enable ? 'เปิด' : 'ปิด') . ' · Client ID: ' . ($id !== '' ? $id : '(ใช้ค่าใน config)'));
+        $this->logs()->log($admin, 'google.settings', 'settings', null, ($enable ? 'เปิด' : 'ปิด') . ' · Client ID: ' . ($id !== '' ? $id : '(ใช้ค่าใน config)')
+            . ' · Redirect URI: ' . ($redirectUri !== '' ? $redirectUri : '(ค่าเริ่มต้น)'));
         $this->flash('success', $enable ? 'เปิดการเข้าสู่ระบบด้วย Google แล้ว — กด “ทดสอบกับ Google” เพื่อตรวจ redirect URI' : 'ปิดการเข้าสู่ระบบด้วย Google แล้ว ปุ่ม Google ถูกซ่อน');
         redirect('admin.settings');
     }
@@ -386,7 +397,7 @@ final class AdminController extends Controller
             $this->flash('danger', 'ยังไม่มี Client ID / Client secret');
             redirect('admin.settings');
         }
-        $redirect = absolute_url('google.callback');
+        $redirect = google_redirect_uri();
         $r = (new GoogleAuthService($this->db, $this->session, $cfg, $redirect))->diagnose();
         $messages = [
             'redirect_uri_mismatch' => 'Google แจ้ง redirect_uri_mismatch — เพิ่ม redirect URI นี้ใน OAuth Client (Authorized redirect URIs) ให้ตรงทุกตัวอักษร: ' . $redirect,
@@ -448,7 +459,8 @@ final class AdminController extends Controller
 
     private function drive(): GoogleDriveService
     {
-        return new GoogleDriveService($this->db, $this->app->config, absolute_url('admin.drive.callback'));
+        // ใช้ redirect URI เดียวกับการเข้าสู่ระบบด้วย Google (google_callback.php) — ไม่ต้องลงทะเบียน URI เพิ่ม
+        return new GoogleDriveService($this->db, $this->app->config, google_redirect_uri());
     }
 
     public function drivePage(): void
@@ -463,7 +475,11 @@ final class AdminController extends Controller
             'folderId' => $this->app->setting('drive_folder_id'),
             'total' => (int) ($counts['total'] ?? 0),
             'onDrive' => (int) ($counts['on_drive'] ?? 0),
-            'redirectUri' => absolute_url('admin.drive.callback'),
+            'redirectUri' => google_redirect_uri(),
+            'backupFolderId' => $this->app->setting('drive_backup_folder_id'),
+            'legacyRemaining' => GoogleDriveService::active() ? $this->drive()->legacyRemaining() : 0,
+            'backupLast' => json_decode($this->app->setting('drive_backup_last', '{}'), true) ?: null,
+            'backupFiles' => BackupService::localFiles(),
         ]);
     }
 
@@ -511,7 +527,8 @@ final class AdminController extends Controller
             redirect('admin.drive');
         }
         $this->logs()->log($admin, 'drive.connect', 'settings', null, $state['email'] . ' → ' . $state['parent_folder_name']);
-        $this->flash('success', 'เชื่อมต่อ Google Drive ด้วยบัญชี ' . $state['email'] . ' แล้ว ภาพใหม่จะเก็บในโฟลเดอร์ “' . GoogleDriveService::SUBFOLDER_NAME . '”');
+        $this->flash('success', 'เชื่อมต่อ Google Drive ด้วยบัญชี ' . $state['email'] . ' แล้ว ภาพเก็บใน “' . $state['parent_folder_name'] . '/' . implode('/', GoogleDriveService::IMAGE_PATH) . '” (ตรงกับเว็บ)'
+            . (!empty($state['legacy_folder_id']) ? ' — กด “อัปโหลดภาพที่ยังไม่อยู่บน Drive” เพื่อย้ายภาพเดิมเข้าโฟลเดอร์นี้' : ''));
         redirect('admin.drive');
     }
 
@@ -525,12 +542,97 @@ final class AdminController extends Controller
         redirect('admin.drive');
     }
 
+    // ---------- สำรองข้อมูลไปยัง Google Drive ----------
+
+    /** โฟลเดอร์ปลายทางของไฟล์สำรอง (แยกจากโฟลเดอร์ภาพ) */
+    public function backupFolder(): void
+    {
+        $admin = $this->admin();
+        $raw = trim($this->postString('backup_folder'));
+        $id = $raw === '' ? '' : GoogleDriveService::parseFolderId($raw);
+        if ($id === null) {
+            $this->flash('danger', 'ลิงก์หรือรหัสโฟลเดอร์สำรองข้อมูลไม่ถูกต้อง (เช่น https://drive.google.com/drive/folders/…)');
+            redirect('admin.drive');
+        }
+        (new SettingRepository($this->db))->save(['drive_backup_folder_id' => $id]);
+        $this->logs()->log($admin, 'backup.folder', 'settings', null, $id !== '' ? $id : '(storage/backups ในโฟลเดอร์หลัก)');
+        $this->flash('success', $id !== '' ? 'บันทึกโฟลเดอร์สำรองข้อมูลแล้ว' : 'ใช้โฟลเดอร์ storage/backups ในโฟลเดอร์หลักเป็นที่สำรองข้อมูล');
+        redirect('admin.drive');
+    }
+
+    /** สร้างไฟล์สำรอง (ฐานข้อมูล + ไฟล์อัปโหลด) แล้วอัปโหลดขึ้นโฟลเดอร์สำรองบน Google Drive */
+    public function driveBackup(): void
+    {
+        $admin = $this->admin();
+        $folderId = $this->app->setting('drive_backup_folder_id');
+        if (!GoogleDriveService::active()) {
+            $this->flash('danger', 'ยังไม่ได้เชื่อมต่อ Google Drive หรือต้องเชื่อมต่อใหม่ — กด “เชื่อมต่อ Google Drive” ก่อน');
+            redirect('admin.drive');
+        }
+        ignore_user_abort(true);
+        @set_time_limit(1800);
+        try {
+            $backup = (new BackupService($this->db))->create();
+        } catch (\Throwable $e) {
+            \PromptHub\Core\Logger::error($e, 'backup-create');
+            $this->flash('danger', 'สร้างไฟล์สำรองไม่สำเร็จ (รายละเอียดใน storage/logs)');
+            redirect('admin.drive');
+        }
+        try {
+            // ไม่ได้ตั้งโฟลเดอร์สำรองแยก → โฟลเดอร์หลัก/storage/backups (ตรงกับเว็บ)
+            $up = $this->drive()->uploadBackup($backup['path'], $folderId !== '' ? $folderId : $this->drive()->backupFolderId());
+        } catch (HttpException $e) {
+            $this->flash('danger', $e->getMessage() . ' · ไฟล์สำรองยังอยู่ในเครื่อง: ' . $backup['name']);
+            redirect('admin.drive');
+        } catch (\Throwable $e) {
+            \PromptHub\Core\Logger::error($e, 'backup-upload');
+            $this->flash('danger', 'อัปโหลดไฟล์สำรองขึ้น Google Drive ไม่สำเร็จ (รายละเอียดใน storage/logs) · ไฟล์สำรองยังอยู่ในเครื่อง: ' . $backup['name']);
+            redirect('admin.drive');
+        }
+        $last = ['at' => gmdate('Y-m-d H:i:s'), 'name' => $up['name'], 'size' => $up['size'], 'file_id' => $up['id'],
+            'folder_name' => $up['folder_name'], 'tables' => $backup['tables'], 'files' => $backup['files'], 'by' => (string) $admin['username']];
+        (new SettingRepository($this->db))->save(['drive_backup_last' => json_encode($last, JSON_UNESCAPED_UNICODE)]);
+        $this->logs()->log($admin, 'backup.drive', 'settings', null, $up['name'] . ' · ' . round($up['size'] / 1048576, 1) . ' MB → ' . $up['folder_name']);
+        $this->flash('success', 'สำรองข้อมูลขึ้น Google Drive แล้ว: ' . $up['name'] . ' (' . number_format($up['size'] / 1048576, 1) . ' MB · '
+            . $backup['tables'] . ' ตาราง · ' . $backup['files'] . ' ไฟล์)');
+        redirect('admin.drive');
+    }
+
+    /** ดาวน์โหลดไฟล์สำรองที่เก็บในเครื่อง */
+    public function backupDownload(): void
+    {
+        $this->admin();
+        $name = $this->query('name', 60);
+        $path = BackupService::dir() . '/' . $name;
+        if (!BackupService::validName($name) || !is_file($path)) {
+            throw new HttpException(404, 'ไม่พบไฟล์สำรอง');
+        }
+        while (ob_get_level() > 0) {
+            ob_end_clean();
+        }
+        header('Content-Type: application/zip');
+        header('Content-Length: ' . filesize($path));
+        header('Content-Disposition: attachment; filename="' . $name . '"');
+        header('X-Content-Type-Options: nosniff');
+        readfile($path);
+        exit;
+    }
+
     public function driveSync(): void
     {
         $admin = $this->admin();
         if (!GoogleDriveService::active()) {
             $this->flash('danger', 'ยังไม่ได้เชื่อมต่อ Google Drive หรือต้องเชื่อมต่อใหม่');
             redirect('admin.drive');
+        }
+        $moved = $this->drive()->relocateLegacy(50);
+        if ($moved['moved'] || $moved['failed'] || $moved['remaining']) {
+            $this->logs()->log($admin, 'drive.sync', 'settings', null, "ย้ายภาพเดิม {$moved['moved']} ล้มเหลว {$moved['failed']} เหลือ {$moved['remaining']}");
+            $this->flash($moved['failed'] ? 'warning' : 'info', "ย้ายภาพเดิมเข้า storage/uploads/prompts {$moved['moved']} ภาพ"
+                . ($moved['failed'] ? ' · ไม่สำเร็จ (ดู storage/logs)' : '') . ($moved['remaining'] ? " · เหลืออีก {$moved['remaining']} ภาพ กดอีกครั้งเพื่อย้ายต่อ" : ' · ย้ายครบแล้ว'));
+            if ($moved['remaining'] || $moved['failed']) {
+                redirect('admin.drive');
+            }
         }
         $r = $this->drive()->syncPending(null, 20);
         $this->logs()->log($admin, 'drive.sync', 'settings', null, "อัปโหลด {$r['uploaded']} ล้มเหลว {$r['failed']} เหลือ {$r['remaining']}");

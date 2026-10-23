@@ -35,6 +35,18 @@ FILES = [
     'views/admin/shop_orders.php',                  # ใหม่
     'public/assets/css/app.css',                    # สไตล์ร้านค้า
     'public/assets/js/app.js',                      # QR พร้อมเพย์ หัวใจ แชร์ คัดลอกโค้ด
+    'public/google_callback.php',                   # ใหม่: ไฟล์ Google callback (redirect URI ใหม่)
+    'app/Controllers/AuthController.php',           # ใช้ redirect URI ใหม่
+    'app/Controllers/AdminController.php',          # ปุ่มทดสอบกับ Google ใช้ redirect URI ใหม่
+    'views/admin/settings.php',                     # แสดง redirect URI ใหม่
+    'app/Services/GoogleDriveService.php',          # Drive ใช้ redirect URI เดียวกับการเข้าสู่ระบบ
+    'views/admin/drive.php',                        # คำแนะนำ redirect URI + การ์ดสำรองข้อมูล
+    'app/Services/BackupService.php',               # ใหม่: สร้างไฟล์สำรอง (ฐานข้อมูล + uploads)
+    'bin/drive-backup.php',                         # ใหม่: สำรองข้อมูลผ่าน cron
+    'app/Controllers/PromptController.php',         # ?r=media ส่งต่อไปภาพบน Drive เมื่อไม่มีสำเนาในเครื่อง
+    'views/public/prompt.php',                      # ลิงก์ดูขนาดเต็มใช้ภาพบน Drive
+    'views/member/prompt_form.php',                 # ภาพในฟอร์มแก้ไขแสดงจาก Drive
+    'bin/drive-sync.php',                           # ย้ายภาพเดิมเข้า storage/uploads/prompts ก่อนอัปโหลด
     'database/migrations/009_shop.sql',             # ตารางร้านค้า (นำเข้าใน phpMyAdmin)
 ]
 # ไฟล์ .sql อื่นอาจเป็น dump ที่มีข้อมูลสมาชิก — อนุญาตเฉพาะไฟล์ migration
@@ -56,14 +68,30 @@ GUIDE = """อัปเดต Prompt Hub {frm} → {to} (Digital Shop) บน kr
    * ไม่มี config/config.php และ storage/ ในชุดนี้ — ห้ามลบหรือทับของเดิมบนโฮสต์
    * โฟลเดอร์ storage/uploads/shop ระบบสร้างให้เองเมื่ออัปโหลดไฟล์สินค้าครั้งแรก (storage/ ต้องเขียนได้เหมือนเดิม)
 
-3) ตั้งค่าร้าน — หลังบ้าน > คำสั่งซื้อ > การ์ด "ตั้งค่าร้าน"
+3) Google Cloud Console (ทำก่อน/ทันทีหลังอัปโหลด ไม่เช่นนั้นปุ่มเข้าสู่ระบบด้วย Google จะขึ้น redirect_uri_mismatch)
+   - APIs & Services > Credentials > OAuth 2.0 Client IDs > คลิก Client ที่ใช้ > Authorized redirect URIs > + ADD URI
+       https://krusomkhuan.com/prompthub/public/google_callback.php
+   - SAVE แล้วรอสักครู่ (5 นาที – ไม่กี่ชั่วโมง) · URI เดิม (?r=google.callback) เก็บไว้ได้
+   - ต้องการใช้ URI อื่น: หลังบ้าน > ตั้งค่าเว็บไซต์ > ช่อง "Authorized redirect URI" (เว้นว่าง = ค่าเริ่มต้นข้างบน) ค่าที่ตั้งต้องตรงกับใน Google Cloud Console
+   - หลังบ้าน > ตั้งค่าเว็บไซต์ > กด "ทดสอบกับ Google" ต้องผ่าน
+   - Google Drive ใช้ URI เดียวกันนี้ (ไม่ต้องเพิ่ม ?r=admin.drive.callback) — หลังบ้าน > Google Drive > เชื่อมต่อ Google Drive ได้เลย
+
+3.1) สำรองข้อมูลไปยัง Google Drive (ใหม่)
+   - โฟลเดอร์บน Drive จัดให้ตรงกับเว็บ: โฟลเดอร์หลัก/storage/uploads/prompts (ภาพ) และ storage/backups (ไฟล์สำรอง)
+   - หลังบ้าน > Google Drive > กด "อัปโหลดภาพที่ยังไม่อยู่บน Drive" ซ้ำจนไม่มีข้อความ "เหลืออีก" — ย้ายภาพเดิมเข้า storage/uploads/prompts
+   - การ์ด "สำรองข้อมูลไปยัง Google Drive": เว้นว่างช่องโฟลเดอร์ (ลบลิงก์เดิมออก) > บันทึก = เก็บใน storage/backups
+   - กด "สำรองข้อมูลไปยัง Google Drive" (บัญชีที่เชื่อมต่อ Drive ต้องเป็นผู้แก้ไขโฟลเดอร์นี้)
+   - โฟลเดอร์ storage/backups บนโฮสต์ต้องเขียนได้ · ตั้ง cron วันละครั้งได้: php /path/prompthub/bin/drive-backup.php
+
+4) ตั้งค่าร้าน — หลังบ้าน > คำสั่งซื้อ > การ์ด "ตั้งค่าร้าน"
    - ใส่หมายเลขพร้อมเพย์ (เบอร์โทร 10 หลัก หรือเลข 13 หลัก) ชื่อบัญชี และคำแนะนำการชำระเงิน > บันทึก
    - ต้องการเตรียมสินค้าก่อนเปิดร้าน: ปิดสวิตช์ "เปิด Digital Shop ให้ทุกคนเห็น" ไว้ก่อน (ผู้ดูแลยังเห็นหน้าร้าน)
 
-4) เพิ่มสินค้า — หลังบ้าน > Digital Shop > เพิ่มสินค้า
+5) เพิ่มสินค้า — หลังบ้าน > Digital Shop > เพิ่มสินค้า
    - ไฟล์ดาวน์โหลดใหญ่สุดตามค่า upload_max_filesize / post_max_size ของโฮสต์ (ดูได้ที่ใต้ช่องเลือกไฟล์)
 
-5) ตรวจ
+6) ตรวจ
+   - กดเข้าสู่ระบบด้วย Google ได้ตามปกติ
    - ส่วนท้ายเว็บต้องขึ้น "เวอร์ชัน {to}" และแถบเมนูมี "Digital Shop"
    - https://krusomkhuan.com/prompthub/public/index.php?r=shop เปิดได้
    - https://krusomkhuan.com/prompthub/storage/uploads/shop/ ต้องได้ 403 Forbidden

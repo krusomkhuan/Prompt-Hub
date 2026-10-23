@@ -42,6 +42,16 @@ if ($cmd === 'create') {
         exit(2);
     }
     echo json_encode($db->all($req['sql'], $req['params'] ?? []), JSON_UNESCAPED_UNICODE);
+} elseif ($cmd === 'backup-settings') {
+    // คืนค่าตั้งค่าสำรองข้อมูลหลังทดสอบ (เฉพาะ 2 คีย์นี้) — ค่า null = ลบแถว
+    $req = json_decode((string) stream_get_contents(STDIN), true, 8, JSON_THROW_ON_ERROR);
+    foreach (['drive_backup_folder_id', 'drive_backup_last'] as $k) {
+        $db->execute('DELETE FROM site_settings WHERE setting_key = ?', [$k]);
+        if (isset($req[$k]) && is_string($req[$k])) {
+            $db->execute('INSERT INTO site_settings (setting_key, setting_value) VALUES (?, ?)', [$k, $req[$k]]);
+        }
+    }
+    echo "ok";
 } elseif ($cmd === 'expire-resets') {
     // ทดสอบลิงก์หมดอายุ: เลื่อนเวลาหมดอายุของลิงก์ตั้งรหัสผ่านของผู้ใช้ทดสอบไปในอดีต
     $username = $argv[2] ?? '';

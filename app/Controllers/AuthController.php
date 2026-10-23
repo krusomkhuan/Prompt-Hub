@@ -8,6 +8,7 @@ use PromptHub\Core\Mailer;
 use PromptHub\Core\Validator;
 use PromptHub\Repositories\UserRepository;
 use PromptHub\Services\GoogleAuthService;
+use PromptHub\Services\GoogleDriveService;
 use PromptHub\Core\ValidationException;
 use PromptHub\Services\AuthService;
 use PromptHub\Services\PasswordResetService;
@@ -129,7 +130,7 @@ final class AuthController extends Controller
 
     private function google(): GoogleAuthService
     {
-        $redirect = absolute_url('google.callback');
+        $redirect = google_redirect_uri();
         $svc = new GoogleAuthService($this->db, $this->session, (array) ($this->app->config['google'] ?? []), $redirect);
         if (!$svc->enabled()) {
             throw new HttpException(404, 'ระบบยังไม่ได้เปิดใช้การเข้าสู่ระบบด้วย Google');
@@ -146,6 +147,11 @@ final class AuthController extends Controller
 
     public function googleCallback(): void
     {
+        // การเชื่อมต่อ Google Drive (หลังบ้าน) ใช้ redirect URI เดียวกัน — แยกด้วย state ที่บันทึกใน session ตอนกดปุ่มเชื่อมต่อ
+        if (GoogleDriveService::ownsState($this->session, $_GET['state'] ?? null)) {
+            (new AdminController($this->app))->driveCallback();
+            return;
+        }
         if ($this->auth->check()) {
             redirect('dashboard');
         }

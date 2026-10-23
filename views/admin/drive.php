@@ -15,11 +15,15 @@
                         <dl class="row small mb-3">
                             <dt class="col-sm-4 text-secondary fw-normal">โฟลเดอร์หลัก</dt>
                             <dd class="col-sm-8"><a href="https://drive.google.com/drive/folders/<?= e(rawurlencode($drive['parent_folder_id'])) ?>" target="_blank" rel="noopener"><?= e($drive['parent_folder_name'] ?: $drive['parent_folder_id']) ?></a></dd>
-                            <dt class="col-sm-4 text-secondary fw-normal">เก็บภาพในโฟลเดอร์ย่อย</dt>
-                            <dd class="col-sm-8"><a href="https://drive.google.com/drive/folders/<?= e(rawurlencode($drive['folder_id'])) ?>" target="_blank" rel="noopener" id="driveSubfolder"><?= e(GoogleDriveService::SUBFOLDER_NAME) ?></a></dd>
+                            <dt class="col-sm-4 text-secondary fw-normal">เก็บภาพในโฟลเดอร์</dt>
+                            <dd class="col-sm-8"><a href="https://drive.google.com/drive/folders/<?= e(rawurlencode($drive['folder_id'])) ?>" target="_blank" rel="noopener" id="driveSubfolder"><?= e(($drive['parent_folder_name'] ?: 'โฟลเดอร์หลัก') . '/' . ((($drive['layout'] ?? '') === 'mirror') ? implode('/', GoogleDriveService::IMAGE_PATH) : GoogleDriveService::LEGACY_SUBFOLDER)) ?></a>
+                                <span class="text-secondary">(ตรงกับ storage/uploads/prompts ของเว็บ)</span></dd>
                             <dt class="col-sm-4 text-secondary fw-normal">เชื่อมต่อเมื่อ</dt>
                             <dd class="col-sm-8"><?= e(thai_date($drive['connected_at'])) ?></dd>
                         </dl>
+                        <?php if ($legacyRemaining > 0): ?>
+                            <div class="alert alert-info small" id="driveLegacy"><i class="bi bi-folder-symlink me-1"></i>มีภาพเดิม <?= number_th($legacyRemaining) ?> ภาพในโฟลเดอร์ “<?= e(GoogleDriveService::LEGACY_SUBFOLDER) ?>” — กด “อัปโหลดภาพที่ยังไม่อยู่บน Drive” เพื่อย้ายเข้า storage/uploads/prompts (ย้ายไฟล์เดิม ไม่อัปโหลดซ้ำ ลิงก์ภาพบนเว็บไม่เปลี่ยน)</div>
+                        <?php endif; ?>
                         <?php if (($drive['parent_folder_id'] ?? '') !== $folderId): ?>
                             <div class="alert alert-warning small">โฟลเดอร์ที่บันทึกไว้ต่างจากโฟลเดอร์ที่เชื่อมต่ออยู่ กด “เชื่อมต่อใหม่” เพื่อเริ่มใช้โฟลเดอร์ใหม่</div>
                         <?php endif; ?>
@@ -39,7 +43,7 @@
                         <?php if ($active): ?>
                             <form method="post" action="<?= e(url('admin.drive.sync')) ?>">
                                 <?= csrf_field() ?>
-                                <button class="btn btn-outline-primary" type="submit" <?= $onDrive < $total ? '' : 'disabled' ?>><i class="bi bi-cloud-upload me-1"></i>อัปโหลดภาพที่ยังไม่อยู่บน Drive</button>
+                                <button class="btn btn-outline-primary" type="submit" <?= $onDrive < $total || $legacyRemaining > 0 ? '' : 'disabled' ?>><i class="bi bi-cloud-upload me-1"></i>อัปโหลดภาพที่ยังไม่อยู่บน Drive</button>
                             </form>
                         <?php endif; ?>
                         <?php if ($drive): ?>
@@ -66,9 +70,55 @@
                 <label class="form-label fw-semibold" for="folder">โฟลเดอร์ Google Drive</label>
                 <input class="form-control font-monospace" id="folder" name="folder" maxlength="300" required value="<?= e($folderId !== '' ? 'https://drive.google.com/drive/folders/' . $folderId : '') ?>"
                        placeholder="https://drive.google.com/drive/folders/..." autocomplete="off" spellcheck="false">
-                <div class="form-text">วางลิงก์โฟลเดอร์ (หรือรหัสโฟลเดอร์) ระบบจะสร้างโฟลเดอร์ย่อย “<?= e(GoogleDriveService::SUBFOLDER_NAME) ?>” ไว้เก็บภาพ เพื่อแยกจากไฟล์อื่นในโฟลเดอร์</div>
+                <div class="form-text">วางลิงก์โฟลเดอร์ (หรือรหัสโฟลเดอร์) ระบบจัดโฟลเดอร์ให้ตรงกับเว็บ: ภาพเก็บใน <code>storage/uploads/prompts</code> ไฟล์สำรองใน <code>storage/backups</code> (มีโฟลเดอร์ชื่อนี้อยู่แล้วใช้ของเดิม)</div>
                 <div><button class="btn btn-outline-primary mt-2" type="submit"><i class="bi bi-save me-1"></i>บันทึกโฟลเดอร์</button></div>
             </form>
+
+            <div class="card mt-4" id="driveBackup">
+                <div class="card-body">
+                    <h2 class="h5 mb-1"><i class="bi bi-database-check me-1"></i>สำรองข้อมูลไปยัง Google Drive</h2>
+                    <p class="small text-secondary">สร้างไฟล์ zip เดียวที่มี <strong>ฐานข้อมูลทั้งหมด</strong> (database.sql นำเข้าใน phpMyAdmin ได้) และ <strong>ไฟล์อัปโหลดทั้งหมด</strong> (ภาพตัวอย่าง ภาพโปรไฟล์ ไฟล์ร้านค้า/สลิป) แล้วอัปโหลดขึ้นโฟลเดอร์ด้านล่าง
+                        · ไม่รวม config/config.php และ token ของ Drive · เก็บสำเนาในเครื่องล่าสุด <?= \PromptHub\Services\BackupService::KEEP_LOCAL ?> ไฟล์</p>
+
+                    <form method="post" action="<?= e(url('admin.backup.folder')) ?>" class="mb-3" novalidate>
+                        <?= csrf_field() ?>
+                        <label class="form-label fw-semibold" for="backup_folder">โฟลเดอร์สำรองข้อมูลบน Drive <span class="fw-normal text-secondary small">(เว้นว่าง = storage/backups ในโฟลเดอร์หลัก ตรงกับเว็บ)</span></label>
+                        <div class="input-group">
+                            <input class="form-control font-monospace" id="backup_folder" name="backup_folder" maxlength="300"
+                                   value="<?= e($backupFolderId !== '' ? 'https://drive.google.com/drive/folders/' . $backupFolderId : '') ?>"
+                                   placeholder="<?= e($active ? ($drive['parent_folder_name'] ?: 'โฟลเดอร์หลัก') . '/storage/backups' : 'https://drive.google.com/drive/folders/...') ?>" autocomplete="off" spellcheck="false">
+                            <button class="btn btn-outline-primary" type="submit"><i class="bi bi-save me-1"></i>บันทึก</button>
+                        </div>
+                        <div class="form-text">บัญชีที่เชื่อมต่อ<?= $active ? ' (' . e($drive['email']) . ')' : '' ?> ต้องเป็นเจ้าของหรือผู้แก้ไขโฟลเดอร์นี้
+                            <?php if ($backupFolderId !== ''): ?> · <a href="https://drive.google.com/drive/folders/<?= e(rawurlencode($backupFolderId)) ?>" target="_blank" rel="noopener">เปิดโฟลเดอร์</a><?php endif; ?></div>
+                    </form>
+
+                    <form method="post" action="<?= e(url('admin.backup.drive')) ?>" data-confirm="สำรองข้อมูลทั้งระบบขึ้น Google Drive ตอนนี้? อาจใช้เวลาหลายนาทีตามขนาดไฟล์ กรุณาอย่าปิดหน้านี้">
+                        <?= csrf_field() ?>
+                        <button class="btn btn-primary" type="submit" <?= $active ? '' : 'disabled' ?>><i class="bi bi-cloud-arrow-up me-1"></i>สำรองข้อมูลไปยัง Google Drive</button>
+                        <?php if (!$active): ?><span class="small text-secondary ms-2">เชื่อมต่อ Google Drive ก่อน</span><?php endif; ?>
+                    </form>
+
+                    <?php if ($backupLast): ?>
+                        <div class="small mt-3" id="backupLast"><i class="bi bi-check-circle text-success me-1"></i>สำรองล่าสุด <?= e(thai_date($backupLast['at'])) ?>
+                            · <a href="https://drive.google.com/file/d/<?= e(rawurlencode((string) $backupLast['file_id'])) ?>/view" target="_blank" rel="noopener"><?= e($backupLast['name']) ?></a>
+                            · <?= e(number_format((int) $backupLast['size'] / 1048576, 1)) ?> MB · <?= (int) $backupLast['tables'] ?> ตาราง · <?= (int) $backupLast['files'] ?> ไฟล์
+                            <?= ($backupLast['folder_name'] ?? '') !== '' ? '→ ' . e($backupLast['folder_name']) : '' ?></div>
+                    <?php endif; ?>
+                    <?php if ($backupFiles): ?>
+                        <details class="small mt-2">
+                            <summary class="text-secondary">ไฟล์สำรองในเครื่อง (<?= count($backupFiles) ?>)</summary>
+                            <ul class="list-unstyled mb-0 mt-1">
+                                <?php foreach ($backupFiles as $b): ?>
+                                    <li><a href="<?= e(url('admin.backup.download', ['name' => $b['name']])) ?>"><i class="bi bi-file-earmark-zip me-1"></i><?= e($b['name']) ?></a>
+                                        <span class="text-secondary">· <?= e(number_format($b['size'] / 1048576, 1)) ?> MB</span></li>
+                                <?php endforeach; ?>
+                            </ul>
+                        </details>
+                    <?php endif; ?>
+                    <p class="small text-warning mb-0 mt-3"><i class="bi bi-shield-lock me-1"></i>ไฟล์สำรองมีข้อมูลสมาชิก (อีเมล hash รหัสผ่าน) — ระบบไม่ตั้งสิทธิ์แชร์ไฟล์ ห้ามแชร์โฟลเดอร์นี้แบบ “ทุกคนที่มีลิงก์”</p>
+                </div>
+            </div>
         </div>
 
         <div class="col-lg-5">
@@ -78,8 +128,9 @@
                     <ol class="ps-3 mb-2">
                         <li>APIs &amp; Services › Library › เปิดใช้ <strong>Google Drive API</strong></li>
                         <li>OAuth consent screen › เลือก <strong>Internal</strong> (บัญชีในโดเมนเดียวกัน token ไม่หมดอายุ) และเพิ่ม scope <code>…/auth/drive</code> — ถ้าเปิดให้สมาชิกทั่วไป (Gmail) สมัครด้วย Google ด้วย ให้สร้าง <strong>OAuth Client แยก</strong>: Client สำหรับเข้าสู่ระบบเป็น External (In production) และ Client สำหรับ Drive เป็น Internal</li>
-                        <li>Credentials › OAuth client ID (Web application) › Authorized redirect URIs เพิ่ม:
-                            <div class="font-monospace text-break bg-body-tertiary rounded p-2 my-1" id="driveRedirectUri"><?= e($redirectUri) ?></div></li>
+                        <li>Credentials › OAuth client ID (Web application) › Authorized redirect URIs ต้องมี:
+                            <div class="font-monospace text-break bg-body-tertiary rounded p-2 my-1" id="driveRedirectUri"><?= e($redirectUri) ?></div>
+                            <span class="text-secondary">เป็น URI เดียวกับการเข้าสู่ระบบด้วย Google — ถ้าใช้ OAuth Client ตัวเดียวกันและเพิ่มไว้แล้ว ไม่ต้องเพิ่มอีก (ใช้ Client แยกสำหรับ Drive ต้องเพิ่ม URI นี้ใน Client นั้นด้วย) · เปลี่ยนได้ที่ ตั้งค่าเว็บไซต์ › การ์ด Google</span></li>
                         <li>ใส่ Client ID / Secret ในส่วน <code>drive</code> ของ <code>config/config.php</code> (<code>'drive' => ['client_id' => '…', 'client_secret' => '…']</code>) — ถ้าไม่ใส่ ใช้ค่าจากส่วน <code>google</code></li>
                         <li>กด “เชื่อมต่อ Google Drive” แล้วเข้าสู่ระบบด้วย <strong>บัญชีเจ้าของโฟลเดอร์</strong></li>
                     </ol>

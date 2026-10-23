@@ -18,3 +18,4 @@
 /database/*prompthub*.sql
 # ไฟล์ zip ของสกิลสร้างจาก build_skill.py และอาจรวมไฟล์ dump ฐานข้อมูล — ไม่ commit
 /skills/prompt-hub/assets/*.zip
+__pycache__/

@@ -28,10 +28,64 @@ function url(string $route = 'home', array $params = []): string
 function prompt_image_attrs(int $imageId, ?string $driveId, int $width = 1600): string
 {
     $local = url('media', ['id' => $imageId]);
-    if ($driveId !== null && $driveId !== '' && \PromptHub\Services\GoogleDriveService::active()) {
+    if (prompt_image_on_drive($driveId)) {
         return 'src="' . e(\PromptHub\Services\GoogleDriveService::imageUrl($driveId, $width)) . '" data-fallback="' . e($local) . '" referrerpolicy="no-referrer"';
     }
     return 'src="' . e($local) . '"';
+}
+
+/** ภาพนี้แสดงจาก Google Drive หรือไม่ (มีสำเนาบน Drive และเชื่อมต่อ Drive อยู่) */
+function prompt_image_on_drive(?string $driveId): bool
+{
+    return $driveId !== null && $driveId !== '' && \PromptHub\Services\GoogleDriveService::active();
+}
+
+/**
+ * URL ภาพขนาดเต็ม (ลิงก์ “ดูขนาดเต็ม”, og:image): ยึดภาพบน Google Drive ก่อน ไม่มีบน Drive ใช้สำเนาบนเซิร์ฟเวอร์
+ * $absolute = ลิงก์แบบมีโดเมน (ใช้กับ og:image)
+ */
+function prompt_image_url(int $imageId, ?string $driveId, bool $absolute = false): string
+{
+    if (prompt_image_on_drive($driveId)) {
+        return \PromptHub\Services\GoogleDriveService::imageUrl($driveId, 1600);
+    }
+    return $absolute ? absolute_url('media', ['id' => $imageId]) : url('media', ['id' => $imageId]);
+}
+
+/**
+ * Google redirect URI ที่ส่งให้ Google — ค่าที่ผู้ดูแลตั้งใน หลังบ้าน › ตั้งค่าเว็บไซต์ (google_redirect_uri)
+ * ว่าง = ไฟล์ public/google_callback.php ตาม URL เว็บไซต์ เช่น https://krusomkhuan.com/prompthub/public/google_callback.php
+ * ต้องลงทะเบียนค่านี้ใน Google Cloud Console (Authorized redirect URIs) ให้ตรงทุกตัวอักษร
+ */
+function google_redirect_uri(): string
+{
+    $custom = App::get()->setting('google_redirect_uri');
+    return $custom !== '' && google_redirect_uri_valid($custom) ? $custom : google_default_redirect_uri();
+}
+
+function google_default_redirect_uri(): string
+{
+    return App::get()->publicUrl() . '/google_callback.php';
+}
+
+/**
+ * redirect URI ที่ตั้งเองได้ต้องชี้มาที่ตัวรับ callback ของระบบนี้เท่านั้น (กันพิมพ์ผิดแล้ว Google ส่งรหัสเข้าสู่ระบบไปเว็บอื่น):
+ * http(s)://โดเมน/…/google_callback.php หรือ http(s)://โดเมน/…/index.php?r=google.callback ไม่มีชื่อผู้ใช้/รหัสผ่าน หรือ #
+ */
+function google_redirect_uri_valid(string $uri): bool
+{
+    if (strlen($uri) > 300 || preg_match('/\s/', $uri) || !filter_var($uri, FILTER_VALIDATE_URL)) {
+        return false;
+    }
+    $p = parse_url($uri);
+    if (!in_array(strtolower((string) ($p['scheme'] ?? '')), ['http', 'https'], true) || empty($p['host'])
+        || isset($p['user']) || isset($p['pass']) || isset($p['fragment']) || str_contains((string) ($p['path'] ?? ''), '..')) {
+        return false;
+    }
+    $path = (string) ($p['path'] ?? '');
+    $query = $p['query'] ?? null;
+    return (str_ends_with($path, '/google_callback.php') && $query === null)
+        || (str_ends_with($path, '/index.php') && $query === 'r=google.callback');
 }
 
 /** ลิงก์แบบเต็ม (มีโดเมน) ตาม URL เว็บไซต์ที่ตั้งไว้ สำหรับอีเมล ลิงก์แชร์ และ OAuth */

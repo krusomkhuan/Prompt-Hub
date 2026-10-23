@@ -82,7 +82,7 @@ $catId = (string) old($old, 'category_id', '');
                             <?php foreach ($images as $img): ?>
                                 <div class="col-6 col-md-3">
                                     <div class="image-thumb">
-                                        <img src="<?= e(url('media', ['id' => $img['id']])) ?>" alt="ภาพตัวอย่าง <?= (int) $img['id'] ?>" loading="lazy">
+                                        <img <?= prompt_image_attrs((int) $img['id'], $img['drive_file_id'] ?? null, 400) ?> alt="ภาพตัวอย่าง <?= (int) $img['id'] ?>" loading="lazy">
                                         <?php if (!empty($img['drive_file_id'])): ?><span class="badge text-bg-success drive-badge" title="มีสำเนาบน Google Drive"><i class="bi bi-google"></i> Drive</span><?php endif; ?>
                                         <div class="form-check small mt-1">
                                             <input class="form-check-input" type="checkbox" name="remove_images[]" value="<?= (int) $img['id'] ?>" id="rm<?= (int) $img['id'] ?>">

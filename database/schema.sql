@@ -292,7 +292,8 @@ INSERT INTO site_settings (setting_key, setting_value) VALUES
 ('shop_enabled', '1'),
 ('shop_promptpay', ''),
 ('shop_account_name', ''),
-('shop_payment_note', '');
+('shop_payment_note', ''),
+('google_redirect_uri', '');
 
 INSERT INTO categories (name, description, icon, sort_order) VALUES
 ('การศึกษาและการสอน', 'แผนการสอน กิจกรรม ข้อสอบ และสื่อการเรียนรู้', 'mortarboard', 10),

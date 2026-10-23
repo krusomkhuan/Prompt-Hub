@@ -51,6 +51,17 @@
         }
     });
 
+    // กดย้อนกลับจากหน้าอื่น (เช่น หน้าแจ้งข้อผิดพลาดของ Google) เบราว์เซอร์คืนหน้าเดิมจาก bfcache พร้อมปุ่มที่ยังหมุนอยู่ → คืนสภาพปุ่ม
+    window.addEventListener('pageshow', function (event) {
+        if (!event.persisted) return;
+        document.querySelectorAll('button.is-loading').forEach(function (b) {
+            b.disabled = false;
+            b.classList.remove('is-loading');
+            var spin = b.querySelector('.spinner-border');
+            if (spin) spin.remove();
+        });
+    });
+
     if (modalEl) {
         document.getElementById('confirmOk').addEventListener('click', function () {
             if (!pendingForm) return;
@@ -445,6 +456,17 @@
             copyText(url).then(function (ok) {
                 label.textContent = ok ? 'คัดลอกลิงก์แล้ว' : 'คัดลอกไม่สำเร็จ';
                 setTimeout(function () { label.textContent = 'แชร์'; }, 2000);
+            });
+        });
+    });
+
+    // คัดลอกค่าจาก attribute: <button data-copy-value="ข้อความ"> (เช่น Google redirect URI ในหน้าตั้งค่า)
+    document.querySelectorAll('[data-copy-value]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            copyText(btn.dataset.copyValue).then(function (ok) {
+                var icon = btn.querySelector('i');
+                if (icon) icon.className = 'bi ' + (ok ? 'bi-check2 text-success' : 'bi-x-lg text-danger');
+                setTimeout(function () { if (icon) icon.className = 'bi bi-clipboard'; }, 1500);
             });
         });
     });

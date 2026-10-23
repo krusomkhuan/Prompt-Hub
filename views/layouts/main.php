@@ -28,7 +28,7 @@ $nav = static function (string $r, string $label, string $icon, array $match) us
     } elseif ($route === 'prompt' && !empty($prompt['id']) && \PromptHub\Services\PromptPolicy::isPublic($prompt)) {
         $share = absolute_url('prompt', ['id' => (int) $prompt['id']]);
         if (!empty($prompt['images'][0]['id'])) {
-            $shareImage = absolute_url('media', ['id' => (int) $prompt['images'][0]['id']]);
+            $shareImage = prompt_image_url((int) $prompt['images'][0]['id'], $prompt['images'][0]['drive_file_id'] ?? null, true);
         }
     }
     ?>

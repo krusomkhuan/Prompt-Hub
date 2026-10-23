@@ -7,7 +7,7 @@ use PromptHub\Core\Database;
 
 final class SettingRepository
 {
-    public const KEYS = ['site_name', 'site_url', 'site_slogan', 'site_description', 'hero_badge', 'developer_name', 'copyright_owner', 'copyright_start_year', 'privacy_controller', 'privacy_contact', 'drive_folder_id', 'google_login_enabled', 'google_client_id', 'google_client_secret', 'shop_enabled', 'shop_promptpay', 'shop_account_name', 'shop_payment_note'];
+    public const KEYS = ['site_name', 'site_url', 'site_slogan', 'site_description', 'hero_badge', 'developer_name', 'copyright_owner', 'copyright_start_year', 'privacy_controller', 'privacy_contact', 'drive_folder_id', 'google_login_enabled', 'google_client_id', 'google_client_secret', 'google_redirect_uri', 'drive_backup_folder_id', 'drive_backup_last', 'shop_enabled', 'shop_promptpay', 'shop_account_name', 'shop_payment_note'];
 
     public function __construct(private Database $db)
     {

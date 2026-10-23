@@ -10,6 +10,7 @@ use PromptHub\Repositories\FavoriteRepository;
 use PromptHub\Repositories\PromptRepository;
 use PromptHub\Repositories\TagRepository;
 use PromptHub\Services\BadgeService;
+use PromptHub\Services\GoogleDriveService;
 use PromptHub\Services\PromptPolicy;
 use PromptHub\Services\ImageService;
 
@@ -115,7 +116,15 @@ final class PromptController extends Controller
         $img = $id ? (new ImageService($this->db))->find($id) : null;
         $prompt = $img ? (new PromptRepository($this->db))->find((int) $img['prompt_id']) : null;
         $path = $img ? ImageService::dir() . '/' . $img['file_name'] : '';
-        if (!$img || !$prompt || !PromptPolicy::canView($this->auth->user(), $prompt) || !is_file($path)) {
+        if (!$img || !$prompt || !PromptPolicy::canView($this->auth->user(), $prompt)) {
+            throw new HttpException(404, 'ไม่พบภาพที่ต้องการ');
+        }
+        if (!is_file($path)) {
+            // ไม่มีสำเนาบนเซิร์ฟเวอร์ (เช่น ย้ายเครื่อง/กู้คืนเฉพาะฐานข้อมูล) แต่มีบน Google Drive → ส่งไปภาพบน Drive
+            if (!empty($img['drive_file_id'])) {
+                header('Location: ' . GoogleDriveService::imageUrl((string) $img['drive_file_id'], 1600), true, 302);
+                exit;
+            }
             throw new HttpException(404, 'ไม่พบภาพที่ต้องการ');
         }
         while (ob_get_level() > 0) {

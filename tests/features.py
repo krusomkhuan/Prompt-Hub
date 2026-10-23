@@ -373,7 +373,7 @@ try:
         location = e.headers.get('Location', '')
     admin.post('admin.settings.save', settings)
     q = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(location).query))
-    check(q.get('redirect_uri') == 'https://hub-' + SUFFIX + '.example.ac.th/index.php?r=google.callback' and q.get('code_challenge_method') == 'S256',
+    check(q.get('redirect_uri') == 'https://hub-' + SUFFIX + '.example.ac.th/google_callback.php' and q.get('code_challenge_method') == 'S256',
           'ตั้ง URL เว็บไซต์แล้ว Google redirect URI ใช้ URL นั้น')
 
     gsub, gemail = 'g' + SUFFIX + '1', 'gnew_' + SUFFIX + '@example.invalid'
@@ -428,12 +428,12 @@ try:
     check(guest.post('admin.google.save', {'google_login_enabled': '1'})[0] == 401 and member.post('admin.google.save', {'google_login_enabled': '1'})[0] == 403
           and member.post('admin.google.test', {})[0] == 403, 'ตั้งค่า Google Login ได้เฉพาะผู้ดูแล')
     page = admin.get('admin.settings')[1]
-    check('id="googleLoginCard"' in page and 'id="googleStatus">ปิดอยู่' in page and (BASE + '?r=google.callback') in page, 'หน้าตั้งค่ามีส่วน Google Login แสดงสถานะและ redirect URI')
+    check('id="googleLoginCard"' in page and 'id="googleStatus">ปิดอยู่' in page and BASE.replace('/index.php', '/google_callback.php') in page, 'หน้าตั้งค่ามีส่วน Google Login แสดงสถานะและ redirect URI')
     admin.post('admin.google.save', {'google_login_enabled': '1'})
     check('google.start' in Client().get('login')[1] and 'id="googleStatus">เปิดใช้งาน' in admin.get('admin.settings')[1],
           'เปิดสวิตช์ในหลังบ้าน (ใช้ Client ใน config) → ปุ่ม Google แสดงในหน้าเข้าสู่ระบบ')
     google.strict_clients = {CLIENT_ID}
-    google.allowed_redirects = {BASE + '?r=google.callback'}
+    google.allowed_redirects = {BASE.replace('/index.php', '/google_callback.php')}
     check('Google รับ Client ID และ redirect URI แล้ว' in admin.post('admin.google.test', {})[1], 'ปุ่ม “ทดสอบกับ Google”: ตั้งค่าถูกต้อง → แจ้งผ่าน')
     google.allowed_redirects = {'https://elsewhere.example/callback'}
     check('redirect_uri_mismatch' in admin.post('admin.google.test', {})[1], 'ปุ่มทดสอบ: redirect URI ไม่ได้ลงทะเบียน → แจ้ง redirect_uri_mismatch พร้อม URI ที่ต้องเพิ่ม')
@@ -466,6 +466,28 @@ try:
     check(scalar("SELECT COUNT(*) FROM admin_activity_logs WHERE admin_id = ? AND action = 'google.settings' AND details NOT LIKE ?", fx['admin']['id'], '%' + secret + '%') >= 3,
           'บันทึกกิจกรรมการตั้งค่า Google (ไม่มี secret ใน log)')
     google.strict_clients = None
+
+    # Redirect URI ตั้งเองได้ในหลังบ้าน (เฉพาะ URL ที่ชี้มาที่ตัวรับ callback ของระบบ)
+    admin.post('admin.google.save', {'google_login_enabled': '0', 'google_redirect_uri': 'https://evil.example/steal'})
+    check(scalar("SELECT setting_value FROM site_settings WHERE setting_key = 'google_redirect_uri'") in (None, ''), 'ปฏิเสธ redirect URI ที่ไม่ใช่ตัวรับ callback ของระบบ')
+    custom = 'https://hub-' + SUFFIX + '.example.ac.th/sub/index.php?r=google.callback'
+    admin.post('admin.google.save', {'google_login_enabled': '1', 'google_redirect_uri': custom})
+    page = admin.get('admin.settings')[1]
+    check(scalar("SELECT setting_value FROM site_settings WHERE setting_key = 'google_redirect_uri'") == custom and 'id="google_redirect_uri"' in page and custom.replace('&', '&amp;') in page,
+          'บันทึก redirect URI ที่ตั้งเองในหลังบ้าน และแสดงในหน้าตั้งค่า')
+    p = Client()
+    tok = p.token()
+    try:
+        urllib.request.build_opener(urllib.request.HTTPCookieProcessor(p.jar), NoRedirect).open(
+            urllib.request.Request(BASE + '?r=google.start', data=urllib.parse.urlencode({'_csrf': tok}).encode()))
+        loc = ''
+    except urllib.error.HTTPError as e:
+        loc = e.headers.get('Location', '')
+    check(dict(urllib.parse.parse_qsl(urllib.parse.urlparse(loc).query)).get('redirect_uri') == custom, 'ปุ่ม Google ส่ง redirect URI ที่ตั้งเองให้ Google')
+    admin.post('admin.google.save', {'google_login_enabled': '0', 'google_redirect_uri': ''})
+    check(scalar("SELECT setting_value FROM site_settings WHERE setting_key = 'google_redirect_uri'") == '' and '/google_callback.php' in admin.get('admin.settings')[1],
+          'เว้นว่าง redirect URI → กลับไปใช้ค่าเริ่มต้น /google_callback.php')
+
 
     print('\nTOTAL', len(passed), 'passed')
 finally:

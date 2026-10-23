@@ -35,6 +35,8 @@ class FakeGoogle:
         self.revoked = []
         self.fail_uploads = False
         self.drive_calls = []      # (method, path)
+        self.resumable = {}        # upload_id -> {meta, data, total}  (อัปโหลดแบบ resumable — ไฟล์สำรองข้อมูล)
+        self.chunk_accept = None   # จำกัดจำนวนไบต์ที่รับต่อครั้ง (จำลองการรับไม่ครบ → 308 พร้อม Range)
         # โหมดเข้มงวด (ใช้ทดสอบการวินิจฉัย): ปฏิเสธ client_id / redirect_uri ที่ไม่รู้จัก แบบเดียวกับ Google จริง
         self.strict_clients = None     # set ของ client_id ที่ยอมรับ หรือ None = รับทั้งหมด
         self.allowed_redirects = None  # set ของ redirect_uri ที่ลงทะเบียน หรือ None = รับทั้งหมด
@@ -80,7 +82,7 @@ class FakeGoogle:
                     code = 'code-' + str(len(owner.codes) + 1) + '-' + str(next(owner._ids))
                     owner.codes[code] = {'challenge': q.get('code_challenge'), 'nonce': q.get('nonce'),
                                          'redirect_uri': q.get('redirect_uri'), 'client_id': q.get('client_id'), 'scope': q.get('scope', '')}
-                    loc = q['redirect_uri'] + '&' + urllib.parse.urlencode({'code': code, 'state': q.get('state', '')})
+                    loc = q['redirect_uri'] + ('&' if '?' in q['redirect_uri'] else '?') + urllib.parse.urlencode({'code': code, 'state': q.get('state', '')})
                     self.send_response(302)
                     self.send_header('Location', loc)
                     self.end_headers()
@@ -141,10 +143,42 @@ class FakeGoogle:
                 if not f:
                     return self.send_json(404, {'error': {'message': 'File not found'}})
                 f.update({k: v for k, v in json.loads(self.body() or b'{}').items() if k in ('trashed', 'name')})
+                pq = dict(urllib.parse.parse_qsl(u.query))
+                if pq.get('removeParents'):
+                    f['parents'] = [p for p in f['parents'] if p not in pq['removeParents'].split(',')]
+                if pq.get('addParents'):
+                    f['parents'] = f['parents'] + [p for p in pq['addParents'].split(',') if p not in f['parents']]
                 self.send_json(200, {'id': u.path.split('/')[-1]})
+
+            def do_PUT(self):
+                u = urllib.parse.urlparse(self.path)
+                q = dict(urllib.parse.parse_qsl(u.query))
+                up = owner.resumable.get(q.get('upload_id', ''))
+                raw = self.body()
+                if not up:
+                    return self.send_json(404, {'error': {'message': 'upload session not found'}})
+                m = re.match(r'bytes (\d+)-(\d+)/(\d+)', self.headers.get('Content-Range', ''))
+                if not m or int(m.group(1)) != len(up['data']):
+                    return self.send_json(400, {'error': {'message': 'bad Content-Range'}})
+                if owner.chunk_accept:
+                    raw = raw[:owner.chunk_accept]
+                up['data'] += raw
+                if len(up['data']) < up['total']:
+                    self.send_response(308)
+                    self.send_header('Range', 'bytes=0-%d' % (len(up['data']) - 1))
+                    self.send_header('Content-Length', '0')
+                    self.end_headers()
+                    return
+                fid = 'drivefile' + str(next(owner._ids)).zfill(6)
+                meta = up['meta']
+                owner.drive_files[fid] = {'name': meta['name'], 'mimeType': up['mime'], 'parents': meta.get('parents', []), 'trashed': False,
+                                          'data': up['data'], 'mime': up['mime'], 'permissions': [], 'description': meta.get('description', '')}
+                del owner.resumable[q['upload_id']]
+                self.send_json(200, {'id': fid, 'name': meta['name'], 'size': str(len(up['data']))})
 
             def do_POST(self):
                 u = urllib.parse.urlparse(self.path)
+                q = dict(urllib.parse.parse_qsl(u.query))
                 raw = self.body()
                 if u.path == '/token':
                     form = dict(urllib.parse.parse_qsl(raw.decode()))
@@ -181,6 +215,21 @@ class FakeGoogle:
                 owner.drive_calls.append(('POST', u.path))
                 if not self.authorized():
                     return self.send_json(401, {'error': {'message': 'unauthorized'}})
+                if u.path == '/upload/drive/v3/files' and q.get('uploadType') == 'resumable':
+                    if owner.fail_uploads:
+                        return self.send_json(500, {'error': {'message': 'backend error'}})
+                    meta = json.loads(raw)
+                    parent = (meta.get('parents') or [''])[0]
+                    if parent not in owner.drive_files or not owner.drive_files[parent].get('capabilities', {}).get('canAddChildren', True):
+                        return self.send_json(404, {'error': {'message': 'File not found'}})
+                    uid = 'up' + str(next(owner._ids))
+                    owner.resumable[uid] = {'meta': meta, 'data': b'', 'total': int(self.headers.get('X-Upload-Content-Length', 0)),
+                                            'mime': self.headers.get('X-Upload-Content-Type', 'application/octet-stream')}
+                    self.send_response(200)
+                    self.send_header('Location', 'http://127.0.0.1:%d/upload/drive/v3/files?uploadType=resumable&upload_id=%s' % (owner.server.server_address[1], uid))
+                    self.send_header('Content-Length', '0')
+                    self.end_headers()
+                    return
                 if u.path == '/upload/drive/v3/files':
                     if owner.fail_uploads:
                         return self.send_json(500, {'error': {'message': 'backend error'}})
@@ -210,8 +259,8 @@ class FakeGoogle:
         self.server = http.server.ThreadingHTTPServer(('127.0.0.1', port), Handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
 
-    def add_folder(self, folder_id, name, can_add=True):
-        self.drive_files[folder_id] = {'name': name, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [], 'trashed': False,
+    def add_folder(self, folder_id, name, can_add=True, parent=None):
+        self.drive_files[folder_id] = {'name': name, 'mimeType': 'application/vnd.google-apps.folder', 'parents': [parent] if parent else [], 'trashed': False,
                                        'data': b'', 'mime': '', 'permissions': [{'type': 'anyone', 'role': 'reader'}],
                                        'capabilities': {'canAddChildren': can_add}}
 

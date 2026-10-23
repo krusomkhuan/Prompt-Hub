@@ -59,7 +59,7 @@ $isPublic = \PromptHub\Services\PromptPolicy::isPublic($p);
                         <div class="row g-2 prompt-gallery">
                             <?php foreach ($p['images'] as $i => $img): ?>
                                 <div class="<?= count($p['images']) === 1 ? 'col-12' : 'col-6' ?>">
-                                    <a href="<?= e(url('media', ['id' => $img['id']])) ?>" target="_blank" rel="noopener" class="d-block">
+                                    <a href="<?= e(prompt_image_url((int) $img['id'], $img['drive_file_id'] ?? null)) ?>" target="_blank" rel="noopener noreferrer" class="d-block">
                                         <img <?= prompt_image_attrs((int) $img['id'], $img['drive_file_id'] ?? null) ?> alt="ภาพตัวอย่างผลลัพธ์ที่ <?= $i + 1 ?> ของ <?= e($p['title']) ?>" loading="lazy" width="<?= (int) $img['width'] ?>" height="<?= (int) $img['height'] ?>">
                                     </a>
                                 </div>

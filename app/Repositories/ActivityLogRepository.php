@@ -32,6 +32,8 @@ final class ActivityLogRepository
         'drive.connect' => 'เชื่อมต่อ Google Drive',
         'drive.disconnect' => 'ยกเลิกการเชื่อมต่อ Google Drive',
         'drive.sync' => 'อัปโหลดภาพขึ้น Google Drive',
+        'backup.folder' => 'ตั้งโฟลเดอร์สำรองข้อมูล',
+        'backup.drive' => 'สำรองข้อมูลขึ้น Google Drive',
         'shop.product.create' => 'เพิ่มสินค้า Digital Shop',
         'shop.product.update' => 'แก้ไขสินค้า Digital Shop',
         'shop.product.delete' => 'ลบสินค้า Digital Shop',

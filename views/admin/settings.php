@@ -27,7 +27,11 @@
                 <dt class="col-sm-4 text-secondary fw-normal">ลิงก์ในอีเมลลืมรหัสผ่าน</dt>
                 <dd class="col-sm-8 font-monospace text-break" id="resetUrlPreview" data-url-suffix="/index.php?r=reset&token=…"><?= e($effective . '/index.php?r=reset&token=…') ?></dd>
                 <dt class="col-sm-4 text-secondary fw-normal">Google redirect URI</dt>
-                <dd class="col-sm-8 font-monospace text-break" id="googleRedirectUri" data-url-suffix="/index.php?r=google.callback"><?= e($effective . '/index.php?r=google.callback') ?></dd>
+                <?php if ($app->setting('google_redirect_uri') !== ''): // ตั้งเองในการ์ด Google ด้านล่าง — ไม่เปลี่ยนตาม URL เว็บไซต์ ?>
+                <dd class="col-sm-8 font-monospace text-break" id="googleRedirectUri"><?= e(google_redirect_uri()) ?> <span class="text-secondary">(ตั้งเอง)</span></dd>
+                <?php else: ?>
+                <dd class="col-sm-8 font-monospace text-break" id="googleRedirectUri" data-url-suffix="/google_callback.php"><?= e($effective . '/google_callback.php') ?></dd>
+                <?php endif; ?>
                 <dt class="col-sm-4 text-secondary fw-normal">ลิงก์แชร์ (canonical)</dt>
                 <dd class="col-sm-8 font-monospace text-break" data-url-suffix="/"><?= e($effective . '/') ?></dd>
             </dl>
@@ -94,7 +98,7 @@
     $gOn = google_enabled();
     $gSource = $app->googleSource();
     $gHasSecret = (string) $app->setting('google_client_secret') !== '';
-    $gRedirect = absolute_url('google.callback');
+    $gRedirect = google_redirect_uri();
     ?>
     <div class="card col-lg-8 mt-4" id="googleLoginCard">
         <div class="card-body">
@@ -126,10 +130,22 @@
                         <label class="form-check-label small" for="google_clear">ลบ Client ID / secret ที่ตั้งในหน้านี้ (กลับไปใช้ค่าในไฟล์ config)</label>
                     </div>
                 <?php endif; ?>
-                <div class="small mb-3">
-                    <div class="text-secondary">Authorized redirect URI ที่ต้องเพิ่มใน Google Cloud Console › Credentials › OAuth client:</div>
-                    <div class="font-monospace text-break bg-body-tertiary rounded p-2 mt-1" id="googleRedirectUri2"><?= e($gRedirect) ?></div>
-                    <div class="text-secondary mt-1">OAuth consent screen: เลือก <strong>External</strong> แล้วกด <strong>Publish app</strong> เพื่อให้บัญชี Gmail ทั่วไปสมัครได้</div>
+                <div class="mb-3">
+                    <label class="form-label" for="google_redirect_uri">Authorized redirect URI</label>
+                    <div class="input-group">
+                        <input class="form-control font-monospace" id="google_redirect_uri" name="google_redirect_uri" type="url" maxlength="300" spellcheck="false"
+                               value="<?= e($app->setting('google_redirect_uri')) ?>" placeholder="<?= e(google_default_redirect_uri()) ?>">
+                        <button class="btn btn-outline-secondary" type="button" data-copy-value="<?= e($gRedirect) ?>" title="คัดลอก URI ที่ใช้อยู่"><i class="bi bi-clipboard"></i><span class="visually-hidden">คัดลอก</span></button>
+                    </div>
+                    <div class="form-text">
+                        เว้นว่าง = ใช้ค่าเริ่มต้น <code><?= e(google_default_redirect_uri()) ?></code>
+                        · ตั้งเองได้เฉพาะ <code>…/google_callback.php</code> หรือ <code>…/index.php?r=google.callback</code> ของเว็บนี้
+                    </div>
+                    <div class="small mt-2">
+                        <span class="text-secondary">URI ที่ใช้อยู่ — คัดลอกไปเพิ่มใน Google Cloud Console › Credentials › OAuth client › Authorized redirect URIs ให้ตรงทุกตัวอักษร:</span>
+                        <div class="font-monospace text-break bg-body-tertiary rounded p-2 mt-1" id="googleRedirectUri2"><?= e($gRedirect) ?></div>
+                        <div class="text-secondary mt-1">OAuth consent screen: เลือก <strong>External</strong> แล้วกด <strong>Publish app</strong> เพื่อให้บัญชี Gmail ทั่วไปสมัครได้</div>
+                    </div>
                 </div>
                 <button class="btn btn-primary" type="submit"><i class="bi bi-save me-1"></i>บันทึกการตั้งค่า Google</button>
             </form>

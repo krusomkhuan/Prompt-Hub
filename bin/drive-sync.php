@@ -31,6 +31,13 @@ if (!GoogleDriveService::active()) {
     exit(1);
 }
 $drive = new GoogleDriveService($db, $config);
+// ย้ายภาพที่อยู่ในโฟลเดอร์รุ่นเก่าเข้า storage/uploads/prompts ก่อน
+do {
+    $m = $drive->relocateLegacy(100);
+    if ($m['moved'] || $m['remaining']) {
+        Console::line("ย้ายภาพเดิม {$m['moved']} ภาพ · เหลือ {$m['remaining']}");
+    }
+} while ($m['remaining'] > 0 && $m['failed'] === 0);
 $total = ['uploaded' => 0, 'failed' => 0];
 do {
     $r = $drive->syncPending(null, 50);

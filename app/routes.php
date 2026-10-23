@@ -99,4 +99,7 @@ return [
     'admin.drive.callback' => ['GET', A::class, 'driveCallback', 'admin'],
     'admin.drive.disconnect' => ['POST', A::class, 'driveDisconnect', 'admin'],
     'admin.drive.sync' => ['POST', A::class, 'driveSync', 'admin'],
+    'admin.backup.folder' => ['POST', A::class, 'backupFolder', 'admin'],
+    'admin.backup.drive' => ['POST', A::class, 'driveBackup', 'admin'],
+    'admin.backup.download' => ['GET', A::class, 'backupDownload', 'admin'],
 ];

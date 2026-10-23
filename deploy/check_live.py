@@ -59,7 +59,7 @@ if has_login_btn:
     except urllib.error.HTTPError as e:
         location = e.headers.get('Location', '')
     q = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(location).query))
-    expected = INDEX + '?r=google.callback'
+    expected = BASE + '/google_callback.php'
     report(location.startswith('https://accounts.google.com/') and q.get('redirect_uri') == expected, 'เว็บส่งผู้ใช้ไปหน้า Google พร้อม redirect URI ที่ถูกต้อง',
            'redirect_uri = ' + q.get('redirect_uri', '-'))
     if location:

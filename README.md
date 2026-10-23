@@ -213,8 +213,8 @@ XAMPP ส่งอีเมลเองไม่ได้ ระบบจึง�
 
 1. เข้า [Google Cloud Console](https://console.cloud.google.com/) › APIs & Services › **OAuth consent screen** ตั้งชื่อแอป อีเมลติดต่อ และ scope `openid` `email` `profile` — เลือก **External** และกด **Publish app** (In production) เพื่อให้สมาชิกที่ใช้ Gmail ทั่วไปสมัครได้ (แบบ Internal ใช้ได้เฉพาะบัญชีในโดเมนองค์กร; แบบ Testing ใช้ได้เฉพาะ Test users) scope พื้นฐานนี้ไม่ต้องรอ Google ตรวจสอบแอป
 2. **Credentials › Create credentials › OAuth client ID** เลือก *Web application*
-3. **Authorized redirect URIs** ใส่ค่าที่แสดงในช่อง “Google redirect URI” ของ **หลังบ้าน › ตั้งค่าเว็บไซต์** ให้ตรงทุกตัวอักษร (= URL เว็บไซต์ + `/index.php?r=google.callback`) เช่น
-   `http://localhost/prompt_hub/public/index.php?r=google.callback`
+3. **Authorized redirect URIs** ใส่ค่าที่แสดงในช่อง “Google redirect URI” ของ **หลังบ้าน › ตั้งค่าเว็บไซต์** ให้ตรงทุกตัวอักษร (= URL เว็บไซต์ + `/google_callback.php`) เช่น
+   `http://localhost/prompt_hub/public/google_callback.php` (บนโฮสต์: `https://krusomkhuan.com/prompthub/public/google_callback.php`)
 4. นำ Client ID และ Client secret มาใส่ที่ **หลังบ้าน › ตั้งค่าเว็บไซต์ › เข้าสู่ระบบ/สมัครสมาชิกด้วย Google** แล้วเปิดสวิตช์ และกด **ทดสอบกับ Google** (หรือใส่ใน `config\config.php` แบบเดิม — ค่าในหลังบ้านมีผลก่อน):
 
 ```php
@@ -264,13 +264,14 @@ XAMPP ส่งอีเมลเองไม่ได้ ระบบจึง�
 ### 5.6.5 เก็บภาพตัวอย่างใน Google Drive
 
 1. Google Cloud Console — แนะนำ **โปรเจกต์/OAuth Client แยก** จาก Google Sign-In (Sign-In ต้องเป็น External ส่วน Drive ควรเป็น Internal): เปิดใช้ **Google Drive API** · OAuth consent screen เลือก **Internal** (บัญชี @pticec.ac.th — refresh token ไม่หมดอายุ; ถ้าเป็น External โหมด Testing ต้องเชื่อมต่อใหม่ทุก 7 วัน) และเพิ่ม scope `https://www.googleapis.com/auth/drive`
-2. OAuth client (Web application) › Authorized redirect URIs เพิ่มค่าที่หน้า **หลังบ้าน › Google Drive** แสดง เช่น `http://localhost/prompt_hub/public/index.php?r=admin.drive.callback`
+2. OAuth client (Web application) › Authorized redirect URIs ต้องมีค่าที่หน้า **หลังบ้าน › Google Drive** แสดง — เป็น URI เดียวกับการเข้าสู่ระบบด้วย Google เช่น `http://localhost/prompt_hub/public/google_callback.php` (ใช้ Client เดียวกันและเพิ่มไว้แล้วไม่ต้องเพิ่มอีก · ระบบแยก Drive กับการเข้าสู่ระบบด้วย state ใน session)
 3. ใส่ `client_id` / `client_secret` ของ Client สำหรับ Drive ในส่วน **`drive`** ของ `config/config.php` (ถ้าไม่ใส่ ระบบใช้ค่าในส่วน `google`)
 4. **หลังบ้าน › Google Drive** › วางลิงก์โฟลเดอร์ › บันทึก › **เชื่อมต่อ Google Drive** ด้วยบัญชีเจ้าของโฟลเดอร์
 5. กด **อัปโหลดภาพที่ยังไม่อยู่บน Drive** เพื่อย้ายภาพเดิม (ครั้งละ 20 ภาพ) หรือรัน `C:\xampp\php\php.exe bin\drive-sync.php`
 
 - ไฟล์บน Drive ตั้งเป็น “ทุกคนที่มีลิงก์ดูได้” เพื่อให้ลิงก์ภาพตรงได้ → ภาพของ Prompt ส่วนตัว/รอตรวจสอบเปิดได้ถ้ามีลิงก์ไฟล์ และผู้มีลิงก์โฟลเดอร์เห็นภาพทั้งหมด อย่าเก็บไฟล์ลับในโฟลเดอร์เดียวกัน
 - token เก็บใน `storage/google-drive.json` (เว็บเข้าไม่ได้) — สำรอง/ย้ายเครื่องให้คัดลอกไฟล์นี้ หรือเชื่อมต่อใหม่
+- โฟลเดอร์บน Drive ตรงกับเว็บ: ภาพอยู่ใน `โฟลเดอร์หลัก/storage/uploads/prompts` (ชื่อไฟล์เดียวกับบนเซิร์ฟเวอร์) ไฟล์สำรองใน `storage/backups` — ภาพจากการเชื่อมต่อรุ่นก่อน (โฟลเดอร์ “Prompt Hub - ภาพตัวอย่างผลลัพธ์”) ย้ายเข้ามาเมื่อกด “อัปโหลดภาพที่ยังไม่อยู่บน Drive”
 - ภาพในเครื่องยังเก็บไว้ทั้งหมด ถ้าภาพจาก Drive โหลดไม่ได้ หน้าเว็บใช้สำเนาในเครื่องแทน · ยกเลิกการเชื่อมต่อแล้วกลับไปแสดงภาพจากเครื่อง
 - ทดสอบอัตโนมัติ (`tests/*.py`) ขณะเชื่อม Drive จริงอยู่ จะอัปโหลดภาพทดสอบขึ้น Drive แล้วย้ายไปถังขยะตอนจบ
 
@@ -281,6 +282,13 @@ XAMPP ส่งอีเมลเองไม่ได้ ระบบจึง�
 - **หลังบ้าน › Digital Shop › เพิ่มสินค้า**: สินค้าต้องมีสิ่งที่ผู้ซื้อได้รับอย่างน้อย 1 อย่าง — เนื้อหาเต็ม/โค้ด, ไฟล์ดาวน์โหลด (PDF, EPUB, ZIP, DOCX, PPTX, XLSX, TXT, MD), ไฟล์โค้ด .zip หรือลิงก์รับสินค้า · ไฟล์ละไม่เกิน 100 MB และไม่เกิน `upload_max_filesize`/`post_max_size` ของ PHP (XAMPP ค่าเริ่มต้น 40M)
 - ไม่มีการตัดเงินอัตโนมัติ: ผู้ดูแลตรวจสลิปที่ **หลังบ้าน › คำสั่งซื้อ** แล้วกด “ยืนยันการชำระเงิน” หรือ “ไม่ผ่าน” (ระบุเหตุผล) สินค้าจึงปรากฏใน “คลังของฉัน” ของผู้ซื้อ
 - ปิดการขายสินค้า: ผู้ที่ได้รับแล้วยังเปิดได้ · ลบสินค้า: ลบไฟล์ คำสั่งซื้อ และรีวิวของสินค้านั้นด้วย
+
+### 5.6.7 สำรองข้อมูลไปยัง Google Drive
+
+- **หลังบ้าน › Google Drive** (ต้องเชื่อมต่อ Google Drive แล้ว) › การ์ด “สำรองข้อมูลไปยัง Google Drive” › วางลิงก์โฟลเดอร์ปลายทาง › บันทึก › กด **สำรองข้อมูลไปยัง Google Drive**
+- ไฟล์ `prompthub-backup-ปีเดือนวัน-เวลา.zip` มี `database.sql` (โครงสร้าง + ข้อมูลทุกตาราง นำเข้าในฐานข้อมูลว่างผ่าน phpMyAdmin ได้) และโฟลเดอร์ `uploads/` (ภาพตัวอย่าง ภาพโปรไฟล์ ไฟล์ร้านค้า/สลิป) — ไม่รวม `config/config.php`, `storage/google-drive.json` และ log
+- บัญชีที่เชื่อมต่อ Drive ต้องเป็นเจ้าของ/ผู้แก้ไขโฟลเดอร์ ระบบไม่ตั้งสิทธิ์แชร์ไฟล์ (มีข้อมูลสมาชิก) · สำเนาในเครื่องอยู่ที่ `storage/backups` (เว็บเข้าไม่ได้) เก็บล่าสุด 5 ไฟล์
+- สำรองอัตโนมัติวันละครั้ง (cron บนโฮสต์): `php /path/prompthub/bin/drive-backup.php` · PHP ต้องเปิด extension `zip`
 
 ### 5.7 ตรวจความปลอดภัยหลังติดตั้ง
 
