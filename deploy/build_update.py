@@ -2,7 +2,7 @@
 
     python deploy/build_update.py
 
-ผลลัพธ์: deploy/prompthub-update-1.9.0-to-1.10.0.zip (ไม่มี config/config.php, storage/ หรือไฟล์ข้อมูล)
+ผลลัพธ์: deploy/prompthub-update-1.11.0-to-1.12.0.zip (ไม่มี config/config.php, storage/ หรือไฟล์ข้อมูล)
 """
 import os
 import re
@@ -10,56 +10,65 @@ import zipfile
 
 DEPLOY = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(DEPLOY)
-FROM, TO = '1.9.0', re.search(r"APP_VERSION', '([0-9.]+)'", open(os.path.join(ROOT, 'app', 'version.php'), encoding='utf-8').read()).group(1)
+FROM, TO = '1.11.0', re.search(r"APP_VERSION', '([0-9.]+)'", open(os.path.join(ROOT, 'app', 'version.php'), encoding='utf-8').read()).group(1)
 
-# ไฟล์ที่เปลี่ยนตั้งแต่ 1.9.0 (ตรวจจากเวลาแก้ไขไฟล์ และเทียบ app.js / app.css บนเว็บจริงแล้วว่าตรงกับเครื่องนี้)
+# ไฟล์ที่เปลี่ยนตั้งแต่ 1.11.0 (เทียบกับสำเนาก่อนแก้ และตรวจแล้วว่า app.css / app.js บนเว็บจริงตรงกับ 1.11.0)
 FILES = [
-    'public/index.php',                         # 1.9.1 แก้ปุ่ม Google ค้าง (CSP form-action)
-    'public/assets/js/app.js',                  # 1.11.0 ช่องรหัสผ่านในโปรไฟล์
-    'app/version.php',                          # เลขเวอร์ชัน
-    'app/routes.php',                           # 1.11.0 route ตั้งค่า/ทดสอบ Google
-    'app/Core/App.php',                         # 1.11.0 ค่า Google จากหลังบ้าน
-    'app/Controllers/AdminController.php',      # 1.10.0–1.11.0
-    'app/Controllers/MemberController.php',     # 1.11.0 แก้ไขชื่อผู้ใช้/อีเมล
-    'app/Services/AuthService.php',             # 1.11.0 แก้ไขชื่อผู้ใช้/อีเมล
-    'app/Services/GoogleAuthService.php',       # 1.11.0 ปุ่มทดสอบกับ Google
-    'app/Services/GoogleDriveService.php',      # 1.10.0 OAuth Client แยกสำหรับ Drive
-    'app/Repositories/UserRepository.php',      # 1.11.0
-    'app/Repositories/SettingRepository.php',   # 1.11.0
-    'app/Repositories/ActivityLogRepository.php',  # 1.11.0
-    'views/member/profile.php',                 # 1.11.0
-    'views/admin/settings.php',                 # 1.11.0 การ์ด Google Login
-    'views/admin/drive.php',                    # 1.10.0 คำแนะนำการตั้งค่า
+    'app/version.php',                              # เลขเวอร์ชัน
+    'app/routes.php',                               # เส้นทาง shop.* / library / admin.shop* / admin.orders
+    'app/helpers.php',                              # shop_order_badge()
+    'app/Controllers/ShopController.php',           # ใหม่: หน้าร้าน คลังของฉัน ดาวน์โหลด
+    'app/Controllers/ShopAdminController.php',      # ใหม่: หลังบ้านสินค้า/คำสั่งซื้อ
+    'app/Services/ShopService.php',                 # ใหม่: กฎร้านค้า ไฟล์ และ QR พร้อมเพย์
+    'app/Repositories/ShopRepository.php',          # ใหม่: SQL ของร้านค้า
+    'app/Repositories/SettingRepository.php',       # ค่าตั้งค่า shop_*
+    'app/Repositories/ActivityLogRepository.php',   # ป้ายบันทึกกิจกรรมของร้านค้า
+    'views/layouts/main.php',                       # เมนู Digital Shop / คลังของฉัน
+    'views/partials/admin_nav.php',                 # เมนูหลังบ้าน Digital Shop / คำสั่งซื้อ
+    'views/partials/shop_card.php',                 # ใหม่
+    'views/shop/index.php',                         # ใหม่
+    'views/shop/show.php',                          # ใหม่
+    'views/shop/checkout.php',                      # ใหม่
+    'views/shop/library.php',                       # ใหม่
+    'views/admin/shop.php',                         # ใหม่
+    'views/admin/shop_form.php',                    # ใหม่
+    'views/admin/shop_orders.php',                  # ใหม่
+    'public/assets/css/app.css',                    # สไตล์ร้านค้า
+    'public/assets/js/app.js',                      # QR พร้อมเพย์ หัวใจ แชร์ คัดลอกโค้ด
+    'database/migrations/009_shop.sql',             # ตารางร้านค้า (นำเข้าใน phpMyAdmin)
 ]
-FORBIDDEN = re.compile(r'(^config/config\.php$|^storage/|\.sql$|google-drive\.json$)')
+# ไฟล์ .sql อื่นอาจเป็น dump ที่มีข้อมูลสมาชิก — อนุญาตเฉพาะไฟล์ migration
+FORBIDDEN = re.compile(r'(^config/config\.php$|^storage/|google-drive\.json$|^(?!database/migrations/\d{3}_[a-z_]+\.sql$).*\.sql$)')
 
-GUIDE = """อัปเดต Prompt Hub {frm} → {to} บน krusomkhuan.com
+GUIDE = """อัปเดต Prompt Hub {frm} → {to} (Digital Shop) บน krusomkhuan.com
 =====================================================
 
-1) อัปโหลดไฟล์ (ทับไฟล์เดิม) — ในโฮสต์ โฟลเดอร์ระบบคือ prompthub/
+0) สำรองก่อนอัปเดต
+   - phpMyAdmin > ฐานข้อมูลของ Prompt Hub > Export (เก็บไว้ในเครื่อง ห้ามอัปขึ้น GitHub — มีข้อมูลสมาชิก)
+
+1) นำเข้าฐานข้อมูล (ทำก่อนอัปโหลดไฟล์)
+   - phpMyAdmin > เลือกฐานข้อมูลของ Prompt Hub > Import > เลือก prompthub/database/migrations/009_shop.sql > Go
+   - ได้ตารางใหม่ 4 ตาราง: shop_products, shop_orders, shop_favorites, shop_reviews (รันซ้ำได้ ไม่ทับข้อมูลเดิม)
+
+2) อัปโหลดไฟล์ (ทับไฟล์เดิม / ไฟล์ใหม่วางตามโฟลเดอร์) — ในโฮสต์ โฟลเดอร์ระบบคือ prompthub/
 {files}
 
    * ไม่มี config/config.php และ storage/ ในชุดนี้ — ห้ามลบหรือทับของเดิมบนโฮสต์
+   * โฟลเดอร์ storage/uploads/shop ระบบสร้างให้เองเมื่ออัปโหลดไฟล์สินค้าครั้งแรก (storage/ ต้องเขียนได้เหมือนเดิม)
 
-2) เข้าสู่ระบบเว็บด้วยบัญชีผู้ดูแล > หลังบ้าน > ตั้งค่าเว็บไซต์ > การ์ด "เข้าสู่ระบบ / สมัครสมาชิกด้วย Google"
-   - เปิดสวิตช์ ใส่ Client ID และ Client secret > บันทึกการตั้งค่า Google
-   - กด "ทดสอบกับ Google" — ถ้าขึ้น redirect_uri_mismatch ให้ทำข้อ 3 แล้วทดสอบใหม่
-   (ไม่ต้องแก้ config/config.php แล้ว — ถ้าเคยใส่ไว้ใน config ก็ใช้ได้ ค่าในหลังบ้านมีผลก่อน)
+3) ตั้งค่าร้าน — หลังบ้าน > คำสั่งซื้อ > การ์ด "ตั้งค่าร้าน"
+   - ใส่หมายเลขพร้อมเพย์ (เบอร์โทร 10 หลัก หรือเลข 13 หลัก) ชื่อบัญชี และคำแนะนำการชำระเงิน > บันทึก
+   - ต้องการเตรียมสินค้าก่อนเปิดร้าน: ปิดสวิตช์ "เปิด Digital Shop ให้ทุกคนเห็น" ไว้ก่อน (ผู้ดูแลยังเห็นหน้าร้าน)
 
-3) Google Cloud Console (OAuth Client เดียวกับ client_id ข้างบน)
-   - Credentials > OAuth client > Authorized redirect URIs เพิ่มให้ตรงทุกตัวอักษร:
-       https://krusomkhuan.com/prompthub/public/index.php?r=google.callback
-       https://krusomkhuan.com/prompthub/public/index.php?r=admin.drive.callback   (ถ้าใช้ Client นี้กับ Drive)
-   - OAuth consent screen > Audience: External > Publish app (In production)
-     (Internal = ใช้ได้เฉพาะบัญชี @pticec.ac.th, Testing = ใช้ได้เฉพาะ Test users)
-   - บันทึกแล้วรอสักครู่ (Google อาจใช้เวลา 5 นาที – ไม่กี่ชั่วโมงก่อนค่าใหม่มีผล)
+4) เพิ่มสินค้า — หลังบ้าน > Digital Shop > เพิ่มสินค้า
+   - ไฟล์ดาวน์โหลดใหญ่สุดตามค่า upload_max_filesize / post_max_size ของโฮสต์ (ดูได้ที่ใต้ช่องเลือกไฟล์)
 
-4) ตรวจ
-   - ส่วนท้ายเว็บต้องขึ้น "เวอร์ชัน {to}"
-   - หน้าเข้าสู่ระบบ/สมัครสมาชิกต้องมีปุ่ม Google
-   - แจ้งผู้ช่วยให้รันตัวตรวจเว็บจริง (deploy/check_live.py) อีกครั้ง
+5) ตรวจ
+   - ส่วนท้ายเว็บต้องขึ้น "เวอร์ชัน {to}" และแถบเมนูมี "Digital Shop"
+   - https://krusomkhuan.com/prompthub/public/index.php?r=shop เปิดได้
+   - https://krusomkhuan.com/prompthub/storage/uploads/shop/ ต้องได้ 403 Forbidden
+   - หน้าชำระเงินของสินค้ามีราคาต้องแสดง QR พร้อมเพย์
 """
-
 
 def main():
     for f in FILES:

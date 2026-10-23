@@ -1,40 +1,49 @@
-﻿อัปเดต Prompt Hub 1.9.0 → 1.11.0 บน krusomkhuan.com
+﻿อัปเดต Prompt Hub 1.11.0 → 1.12.0 (Digital Shop) บน krusomkhuan.com
 =====================================================
 
-1) อัปโหลดไฟล์ (ทับไฟล์เดิม) — ในโฮสต์ โฟลเดอร์ระบบคือ prompthub/
-   - prompthub/public/index.php
-   - prompthub/public/assets/js/app.js
+0) สำรองก่อนอัปเดต
+   - phpMyAdmin > ฐานข้อมูลของ Prompt Hub > Export (เก็บไว้ในเครื่อง ห้ามอัปขึ้น GitHub — มีข้อมูลสมาชิก)
+
+1) นำเข้าฐานข้อมูล (ทำก่อนอัปโหลดไฟล์)
+   - phpMyAdmin > เลือกฐานข้อมูลของ Prompt Hub > Import > เลือก prompthub/database/migrations/009_shop.sql > Go
+   - ได้ตารางใหม่ 4 ตาราง: shop_products, shop_orders, shop_favorites, shop_reviews (รันซ้ำได้ ไม่ทับข้อมูลเดิม)
+
+2) อัปโหลดไฟล์ (ทับไฟล์เดิม / ไฟล์ใหม่วางตามโฟลเดอร์) — ในโฮสต์ โฟลเดอร์ระบบคือ prompthub/
    - prompthub/app/version.php
    - prompthub/app/routes.php
-   - prompthub/app/Core/App.php
-   - prompthub/app/Controllers/AdminController.php
-   - prompthub/app/Controllers/MemberController.php
-   - prompthub/app/Services/AuthService.php
-   - prompthub/app/Services/GoogleAuthService.php
-   - prompthub/app/Services/GoogleDriveService.php
-   - prompthub/app/Repositories/UserRepository.php
+   - prompthub/app/helpers.php
+   - prompthub/app/Controllers/ShopController.php
+   - prompthub/app/Controllers/ShopAdminController.php
+   - prompthub/app/Services/ShopService.php
+   - prompthub/app/Repositories/ShopRepository.php
    - prompthub/app/Repositories/SettingRepository.php
    - prompthub/app/Repositories/ActivityLogRepository.php
-   - prompthub/views/member/profile.php
-   - prompthub/views/admin/settings.php
-   - prompthub/views/admin/drive.php
+   - prompthub/views/layouts/main.php
+   - prompthub/views/partials/admin_nav.php
+   - prompthub/views/partials/shop_card.php
+   - prompthub/views/shop/index.php
+   - prompthub/views/shop/show.php
+   - prompthub/views/shop/checkout.php
+   - prompthub/views/shop/library.php
+   - prompthub/views/admin/shop.php
+   - prompthub/views/admin/shop_form.php
+   - prompthub/views/admin/shop_orders.php
+   - prompthub/public/assets/css/app.css
+   - prompthub/public/assets/js/app.js
+   - prompthub/database/migrations/009_shop.sql
 
    * ไม่มี config/config.php และ storage/ ในชุดนี้ — ห้ามลบหรือทับของเดิมบนโฮสต์
+   * โฟลเดอร์ storage/uploads/shop ระบบสร้างให้เองเมื่ออัปโหลดไฟล์สินค้าครั้งแรก (storage/ ต้องเขียนได้เหมือนเดิม)
 
-2) เข้าสู่ระบบเว็บด้วยบัญชีผู้ดูแล > หลังบ้าน > ตั้งค่าเว็บไซต์ > การ์ด "เข้าสู่ระบบ / สมัครสมาชิกด้วย Google"
-   - เปิดสวิตช์ ใส่ Client ID และ Client secret > บันทึกการตั้งค่า Google
-   - กด "ทดสอบกับ Google" — ถ้าขึ้น redirect_uri_mismatch ให้ทำข้อ 3 แล้วทดสอบใหม่
-   (ไม่ต้องแก้ config/config.php แล้ว — ถ้าเคยใส่ไว้ใน config ก็ใช้ได้ ค่าในหลังบ้านมีผลก่อน)
+3) ตั้งค่าร้าน — หลังบ้าน > คำสั่งซื้อ > การ์ด "ตั้งค่าร้าน"
+   - ใส่หมายเลขพร้อมเพย์ (เบอร์โทร 10 หลัก หรือเลข 13 หลัก) ชื่อบัญชี และคำแนะนำการชำระเงิน > บันทึก
+   - ต้องการเตรียมสินค้าก่อนเปิดร้าน: ปิดสวิตช์ "เปิด Digital Shop ให้ทุกคนเห็น" ไว้ก่อน (ผู้ดูแลยังเห็นหน้าร้าน)
 
-3) Google Cloud Console (OAuth Client เดียวกับ client_id ข้างบน)
-   - Credentials > OAuth client > Authorized redirect URIs เพิ่มให้ตรงทุกตัวอักษร:
-       https://krusomkhuan.com/prompthub/public/index.php?r=google.callback
-       https://krusomkhuan.com/prompthub/public/index.php?r=admin.drive.callback   (ถ้าใช้ Client นี้กับ Drive)
-   - OAuth consent screen > Audience: External > Publish app (In production)
-     (Internal = ใช้ได้เฉพาะบัญชี @pticec.ac.th, Testing = ใช้ได้เฉพาะ Test users)
-   - บันทึกแล้วรอสักครู่ (Google อาจใช้เวลา 5 นาที – ไม่กี่ชั่วโมงก่อนค่าใหม่มีผล)
+4) เพิ่มสินค้า — หลังบ้าน > Digital Shop > เพิ่มสินค้า
+   - ไฟล์ดาวน์โหลดใหญ่สุดตามค่า upload_max_filesize / post_max_size ของโฮสต์ (ดูได้ที่ใต้ช่องเลือกไฟล์)
 
-4) ตรวจ
-   - ส่วนท้ายเว็บต้องขึ้น "เวอร์ชัน 1.11.0"
-   - หน้าเข้าสู่ระบบ/สมัครสมาชิกต้องมีปุ่ม Google
-   - แจ้งผู้ช่วยให้รันตัวตรวจเว็บจริง (deploy/check_live.py) อีกครั้ง
+5) ตรวจ
+   - ส่วนท้ายเว็บต้องขึ้น "เวอร์ชัน 1.12.0" และแถบเมนูมี "Digital Shop"
+   - https://krusomkhuan.com/prompthub/public/index.php?r=shop เปิดได้
+   - https://krusomkhuan.com/prompthub/storage/uploads/shop/ ต้องได้ 403 Forbidden
+   - หน้าชำระเงินของสินค้ามีราคาต้องแสดง QR พร้อมเพย์
